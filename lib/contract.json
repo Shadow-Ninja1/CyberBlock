@@ -1,9 +1,9 @@
 {
-  "address": "0x85bc78f3fec1b8e2e4196980fd65acf9924f6987",
+  "address": "0x4d19730884ce4eb2ae56fb21425003595a8a1cca",
   "chainId": 84532,
   "oracle": "0x37E894935D7fe3d1B52BC6C1BE0Fc18E64478C26",
   "arbiter": "0xc22a9665eA71b9F0979a12A0f563d44842525084",
-  "deployedAtBlock": 46690000,
+  "deployedAtBlock": 46694968,
   "abi": [
     {
       "inputs": [
