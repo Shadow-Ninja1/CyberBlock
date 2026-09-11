@@ -38,6 +38,14 @@ function readMyListingId(): number | null {
   return raw ? Number(raw) : null;
 }
 
+/** Append new ledger lines, skipping any already shown (a poll and an action
+ *  response can both carry the same line). */
+function mergeLogs(prev: LogLine[], incoming: LogLine[]): LogLine[] {
+  const seen = new Set(prev.map((l) => `${l.at}|${l.actor}|${l.message}`));
+  const fresh = incoming.filter((l) => !seen.has(`${l.at}|${l.actor}|${l.message}`));
+  return fresh.length ? [...prev, ...fresh].slice(-200) : prev;
+}
+
 export default function Dashboard({ initial, initialError }: { initial: MarketView | null; initialError: string | null }) {
   const [view, setView] = useState<MarketView | null>(initial);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -78,8 +86,8 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
       setError(null);
       setView(data);
       if (data.logs?.length) {
-        sinceRef.current = data.logs[data.logs.length - 1].at;
-        setLogs((p) => [...p, ...data.logs].slice(-200));
+        sinceRef.current = Math.max(sinceRef.current, data.logs[data.logs.length - 1].at);
+        setLogs((p) => mergeLogs(p, data.logs));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -101,6 +109,13 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
         const res = await fetch("/api/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const data = await res.json();
         const logs: LogLine[] = data.logs ?? [];
+        // The agent console is in-memory per server instance, so on a serverless
+        // deploy the polled /api/state may never see lines /api/action recorded.
+        // Append them here so the ledger reflects the action regardless.
+        if (logs.length) {
+          setLogs((p) => mergeLogs(p, logs));
+          sinceRef.current = Math.max(sinceRef.current, logs[logs.length - 1].at);
+        }
         const refused = logs.find((l) => l.message?.startsWith("REFUSED"));
         const passed = logs.find((l) => l.actor === "buyer" && l.level === "warn" && /^(skipping:|Claude policy:)/.test(l.message ?? ""));
         if (refused) setRefusal(refused.message);
