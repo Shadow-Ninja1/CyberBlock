@@ -13,9 +13,9 @@ import { baseSepolia, hardhat } from "viem/chains";
 import contract from "./contract.json";
 import type { AttestationStruct } from "./types";
 
-export const BAZAAR_ABI = contract.abi;
+export const CONTRACT_ABI = contract.abi;
 export const CHAIN_ID = contract.chainId as number;
-export const BAZAAR_ADDRESS = getAddress(contract.address) as Address;
+export const CONTRACT_ADDRESS = getAddress(contract.address) as Address;
 export const ORACLE_ADDRESS = getAddress(contract.oracle) as Address;
 export const DEPLOYED_AT_BLOCK = BigInt(contract.deployedAtBlock ?? 0);
 
@@ -73,10 +73,10 @@ export function walletFor(role: Role): WalletClient {
 // ------------------------------------------------------------------ EIP-712
 
 export const EIP712_DOMAIN = {
-  name: "BlackBoxBazaar",
+  name: "CyberBlock",
   version: "1",
   chainId: CHAIN_ID,
-  verifyingContract: BAZAAR_ADDRESS,
+  verifyingContract: CONTRACT_ADDRESS,
 } as const;
 
 export const EIP712_TYPES = {
@@ -121,8 +121,8 @@ export interface OnChainListing {
 
 export async function readListing(id: bigint): Promise<OnChainListing> {
   const l = (await publicClient().readContract({
-    address: BAZAAR_ADDRESS,
-    abi: BAZAAR_ABI,
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
     functionName: "getListing",
     args: [id],
   })) as any;
@@ -131,8 +131,8 @@ export async function readListing(id: bigint): Promise<OnChainListing> {
 
 export async function nextListingId(): Promise<bigint> {
   return (await publicClient().readContract({
-    address: BAZAAR_ADDRESS,
-    abi: BAZAAR_ABI,
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
     functionName: "nextListingId",
   })) as bigint;
 }
@@ -145,8 +145,8 @@ export async function allListings(): Promise<OnChainListing[]> {
 
 export async function sellerRep(address: Address): Promise<{ sold: number; slashed: number }> {
   const r = (await publicClient().readContract({
-    address: BAZAAR_ADDRESS,
-    abi: BAZAAR_ABI,
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
     functionName: "sellerRep",
     args: [address],
   })) as [number, number];
@@ -155,8 +155,8 @@ export async function sellerRep(address: Address): Promise<{ sold: number; slash
 
 export async function fairPrice(att: AttestationStruct, embargo: bigint): Promise<bigint> {
   return (await publicClient().readContract({
-    address: BAZAAR_ADDRESS,
-    abi: BAZAAR_ABI,
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
     functionName: "fairPrice",
     args: [att, embargo],
   })) as bigint;
@@ -164,8 +164,8 @@ export async function fairPrice(att: AttestationStruct, embargo: bigint): Promis
 
 export async function minStake(price: bigint): Promise<bigint> {
   return (await publicClient().readContract({
-    address: BAZAAR_ADDRESS,
-    abi: BAZAAR_ABI,
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
     functionName: "minStake",
     args: [price],
   })) as bigint;
@@ -173,8 +173,8 @@ export async function minStake(price: bigint): Promise<bigint> {
 
 export async function disputeBondFor(price: bigint): Promise<bigint> {
   return (await publicClient().readContract({
-    address: BAZAAR_ADDRESS,
-    abi: BAZAAR_ABI,
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
     functionName: "disputeBondFor",
     args: [price],
   })) as bigint;
@@ -185,22 +185,22 @@ export async function listingLogs(id: bigint) {
   const client = publicClient();
   const [listed, delivered, disclosed] = await Promise.all([
     client.getContractEvents({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       eventName: "Listed",
       args: { id },
       fromBlock: DEPLOYED_AT_BLOCK,
     }),
     client.getContractEvents({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       eventName: "Delivered",
       args: { id },
       fromBlock: DEPLOYED_AT_BLOCK,
     }),
     client.getContractEvents({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       eventName: "Disclosed",
       args: { id },
       fromBlock: DEPLOYED_AT_BLOCK,

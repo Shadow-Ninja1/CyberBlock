@@ -1,4 +1,4 @@
-# Black Box Bazaar — Design Doc
+# CyberBlock — Design Doc
 
 **Vertical:** Supply-chain threat intelligence for developer ecosystems (VS Code extensions, npm packages, MCP servers)
 

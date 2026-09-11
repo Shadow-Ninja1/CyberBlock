@@ -22,7 +22,7 @@ import {
   chain,
   publicClient,
   CHAIN_ID,
-  BAZAAR_ADDRESS,
+  CONTRACT_ADDRESS,
   accountFor,
   txUrl,
   readListing,
@@ -91,10 +91,10 @@ async function status(id: bigint) {
 }
 
 async function main() {
-  console.log(`\nBlack Box Bazaar demo`);
+  console.log(`\nCyberBlock demo`);
   console.log(`chain     ${CHAIN_ID}`);
-  console.log(`contract  ${BAZAAR_ADDRESS}`);
-  if (CHAIN_ID === 84532) console.log(`explorer  https://sepolia.basescan.org/address/${BAZAAR_ADDRESS}`);
+  console.log(`contract  ${CONTRACT_ADDRESS}`);
+  if (CHAIN_ID === 84532) console.log(`explorer  https://sepolia.basescan.org/address/${CONTRACT_ADDRESS}`);
 
   await fundLocal();
 

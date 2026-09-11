@@ -4,7 +4,7 @@ import * as path from "path";
 import { getAddress, isAddress } from "viem";
 
 /**
- * Deploys BlackBoxBazaar and writes the address + ABI where the web app and the
+ * Deploys CyberBlock and writes the address + ABI where the web app and the
  * agents can pick them up.
  */
 async function main() {
@@ -26,7 +26,7 @@ async function main() {
     throw new Error("Deployer has no balance. Fund it from a Base Sepolia faucet first.");
   }
 
-  const bazaar = await hre.viem.deployContract("BlackBoxBazaar", [getAddress(oracle)]);
+  const bazaar = await hre.viem.deployContract("CyberBlock", [getAddress(oracle)]);
   console.log(`\ndeployed  ${bazaar.address}`);
 
   const blockNumber = await publicClient.getBlockNumber();
@@ -57,7 +57,7 @@ async function main() {
   }
 
   // Publish the ABI + address for the web app and CLI agents.
-  const artifact = await hre.artifacts.readArtifact("BlackBoxBazaar");
+  const artifact = await hre.artifacts.readArtifact("CyberBlock");
   const out = path.resolve(__dirname, "../../lib/contract.json");
   fs.writeFileSync(
     out,

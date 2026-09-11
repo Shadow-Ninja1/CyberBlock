@@ -1,6 +1,6 @@
 import type { Hex } from "viem";
 
-/** Matches the on-chain `VulnClass` enum in BlackBoxBazaar.sol. */
+/** Matches the on-chain `VulnClass` enum in CyberBlock.sol. */
 export enum VulnClass {
   Unknown = 0,
   InstallHookExfil = 1,

@@ -38,12 +38,12 @@
     {
       "inputs": [
         {
-          "internalType": "enum BlackBoxBazaar.Status",
+          "internalType": "enum CyberBlock.Status",
           "name": "have",
           "type": "uint8"
         },
         {
-          "internalType": "enum BlackBoxBazaar.Status",
+          "internalType": "enum CyberBlock.Status",
           "name": "want",
           "type": "uint8"
         }
@@ -392,7 +392,7 @@
             }
           ],
           "indexed": false,
-          "internalType": "struct BlackBoxBazaar.Attestation",
+          "internalType": "struct CyberBlock.Attestation",
           "name": "att",
           "type": "tuple"
         },
@@ -861,7 +861,7 @@
               "type": "uint64"
             }
           ],
-          "internalType": "struct BlackBoxBazaar.Attestation",
+          "internalType": "struct CyberBlock.Attestation",
           "name": "a",
           "type": "tuple"
         },
@@ -935,7 +935,7 @@
               "type": "uint64"
             },
             {
-              "internalType": "enum BlackBoxBazaar.Status",
+              "internalType": "enum CyberBlock.Status",
               "name": "status",
               "type": "uint8"
             },
@@ -992,12 +992,12 @@
                   "type": "uint64"
                 }
               ],
-              "internalType": "struct BlackBoxBazaar.Attestation",
+              "internalType": "struct CyberBlock.Attestation",
               "name": "att",
               "type": "tuple"
             }
           ],
-          "internalType": "struct BlackBoxBazaar.Listing",
+          "internalType": "struct CyberBlock.Listing",
           "name": "",
           "type": "tuple"
         }
@@ -1055,7 +1055,7 @@
               "type": "uint64"
             }
           ],
-          "internalType": "struct BlackBoxBazaar.Attestation",
+          "internalType": "struct CyberBlock.Attestation",
           "name": "a",
           "type": "tuple"
         }
@@ -1121,7 +1121,7 @@
               "type": "uint64"
             }
           ],
-          "internalType": "struct BlackBoxBazaar.Attestation",
+          "internalType": "struct CyberBlock.Attestation",
           "name": "att",
           "type": "tuple"
         },

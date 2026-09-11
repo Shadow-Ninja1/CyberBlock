@@ -1,4 +1,4 @@
-# Black Box Bazaar
+# CyberBlock
 
 **A market where the paying buyer's fee funds public disclosure for everyone else — turning private zero-day intel into a coordinated-disclosure bounty rather than a black-market resale, with every finding graded on-chain before anyone can see it.**
 
@@ -47,7 +47,7 @@ Most designs treat this as an escrow problem: pay, receive, and if you got cheat
 ## Architecture
 
 ```
-Base Sepolia:  BlackBoxBazaar.sol  — listings, escrow, stakes, hash-locked reveal, reputation
+Base Sepolia:  CyberBlock.sol  — listings, escrow, stakes, hash-locked reveal, reputation
 
   seller agent ──seal, list, deliver, disclose──▶ ┐
   buyer agent  ──evaluate, buy, dispute────────▶  │ contract
@@ -99,7 +99,7 @@ Copy the printed Basescan link into this README, redeploy the app to Vercel with
 
 | Path | What |
 |---|---|
-| `contracts/contracts/BlackBoxBazaar.sol` | the market |
+| `contracts/contracts/CyberBlock.sol` | the market |
 | `contracts/test/` | 22 tests covering every fund flow |
 | `lib/detector.ts` | the deterministic, hashable arbiter |
 | `lib/oracle.ts` | grading + dispute adjudication (no LLM) |

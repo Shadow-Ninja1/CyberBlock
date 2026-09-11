@@ -14,7 +14,7 @@ import {
   fairPrice,
   txUrl,
   addressUrl,
-  BAZAAR_ADDRESS,
+  CONTRACT_ADDRESS,
   ORACLE_ADDRESS,
   CHAIN_ID,
   EXPLORER,
@@ -121,11 +121,11 @@ export async function marketView(): Promise<MarketView> {
   const det = detectorSource();
   return {
     contract: {
-      address: BAZAAR_ADDRESS,
+      address: CONTRACT_ADDRESS,
       explorer: EXPLORER,
       chainId: CHAIN_ID,
       oracle: ORACLE_ADDRESS,
-      addressUrl: addressUrl(BAZAAR_ADDRESS),
+      addressUrl: addressUrl(CONTRACT_ADDRESS),
     },
     listings: views,
     detector: { detectorHash: det.detectorHash, bytes: det.bytes },

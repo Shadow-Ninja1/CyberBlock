@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title Black Box Bazaar
+/// @title CyberBlock
 /// @notice A market for supply-chain threat intelligence that buyers cannot inspect
 ///         before paying. Findings are graded by a signed oracle attestation before
 ///         they can be listed, delivered under a hash-locked key, and publicly
@@ -10,7 +10,7 @@ pragma solidity ^0.8.24;
 /// Lifecycle:
 ///   list ──buy──▶ Sold ──deliver──▶ Delivered ──(challenge window)──▶ Settled ──(embargo)──▶ Disclosed
 ///                                        └──dispute──▶ Disputed ──resolve──▶ Settled | Refunded
-contract BlackBoxBazaar {
+contract CyberBlock {
     // ---------------------------------------------------------------- types
 
     enum Status {
@@ -210,7 +210,7 @@ contract BlackBoxBazaar {
             keccak256(
                 abi.encode(
                     EIP712_DOMAIN_TYPEHASH,
-                    keccak256("BlackBoxBazaar"),
+                    keccak256("CyberBlock"),
                     keccak256("1"),
                     block.chainid,
                     address(this)

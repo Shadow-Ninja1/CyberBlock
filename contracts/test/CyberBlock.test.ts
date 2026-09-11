@@ -57,7 +57,7 @@ const KEY = keccak256(toHex("demo-symmetric-key"));
 async function fixture() {
   const clients = await hre.viem.getWalletClients();
   const [deployer, oracleWallet, seller, buyer, stranger] = clients;
-  const bazaar = await hre.viem.deployContract("BlackBoxBazaar", [oracleAccount.address]);
+  const bazaar = await hre.viem.deployContract("CyberBlock", [oracleAccount.address]);
   const publicClient = await hre.viem.getPublicClient();
 
   return { bazaar, publicClient, deployer, seller, buyer, stranger, oracleWallet };
@@ -83,7 +83,7 @@ async function makeAttestation(
 
   const sig = await oracleAccount.signTypedData({
     domain: {
-      name: "BlackBoxBazaar",
+      name: "CyberBlock",
       version: "1",
       chainId: 31337,
       verifyingContract: getAddress(bazaar.address),
@@ -129,7 +129,7 @@ async function netReceived(publicClient: any, address: Hex, send: () => Promise<
   return after - before + receipt.gasUsed * receipt.effectiveGasPrice;
 }
 
-describe("BlackBoxBazaar", () => {
+describe("CyberBlock", () => {
   describe("pricing rule", () => {
     it("prices a finding from attested severity, class, blast radius and embargo", async () => {
       const { bazaar } = await fixture();
@@ -179,7 +179,7 @@ describe("BlackBoxBazaar", () => {
       );
       const sig = await impostor.signTypedData({
         domain: {
-          name: "BlackBoxBazaar",
+          name: "CyberBlock",
           version: "1",
           chainId: 31337,
           verifyingContract: getAddress(bazaar.address),

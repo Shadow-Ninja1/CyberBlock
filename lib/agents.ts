@@ -9,8 +9,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type Hex } from "viem";
 import {
-  BAZAAR_ABI,
-  BAZAAR_ADDRESS,
+  CONTRACT_ABI,
+  CONTRACT_ADDRESS,
   walletFor,
   publicClient,
   readListing,
@@ -143,8 +143,8 @@ export async function sellerList(findingFile: string, embargo = DEFAULT_EMBARGO)
 
   const { hash } = await send("seller", `list ${att.signed.meta.targetLabel} @ ${fmt(price)} ETH`, () =>
     wallet.writeContract({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       functionName: "list",
       args: [
         att.signed.att,
@@ -162,8 +162,8 @@ export async function sellerList(findingFile: string, embargo = DEFAULT_EMBARGO)
 
   // The contract's duplicate lock maps this artifact hash to its listing id.
   const id = (await publicClient().readContract({
-    address: BAZAAR_ADDRESS,
-    abi: BAZAAR_ABI,
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
     functionName: "listingByArtifact",
     args: [att.signed.att.artifactHash],
   })) as bigint;
@@ -270,8 +270,8 @@ export async function buyerBuy(id: bigint) {
   const wallet = walletFor("BUYER");
   const { hash } = await send("buyer", `buy listing #${id} for ${fmt(l.price)} ETH`, () =>
     wallet.writeContract({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       functionName: "buy",
       args: [id, buyerPub],
       value: l.price,
@@ -288,8 +288,8 @@ export async function sellerDeliver(id: bigint, key: Hex) {
   // Recover the buyer's public key from the Bought event, then wrap K to it.
   const bought = (
     await publicClient().getContractEvents({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       eventName: "Bought",
       args: { id },
       fromBlock: DEPLOYED_AT_BLOCK,
@@ -301,8 +301,8 @@ export async function sellerDeliver(id: bigint, key: Hex) {
   const { hash } = await send("seller", `deliver key for #${id} (wrapped to buyer's pubkey)`, () => {
     const wallet = walletFor("SELLER");
     return wallet.writeContract({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       functionName: "deliver",
       args: [id, wrapped],
       account: wallet.account!,
@@ -337,8 +337,8 @@ export async function buyerDispute(id: bigint, reason: string) {
   const { hash } = await send("buyer", `dispute #${id}: ${reason}`, () => {
     const wallet = walletFor("BUYER");
     return wallet.writeContract({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       functionName: "dispute",
       args: [id, reason],
       value: bond,
@@ -367,8 +367,8 @@ export async function oracleResolve(id: bigint, finding: Finding) {
   const { hash } = await send("oracle", `resolve #${id} (sellerWins=${verdict.sellerWins})`, () => {
     const wallet = walletFor("ORACLE");
     return wallet.writeContract({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       functionName: "resolve",
       args: [id, verdict.sellerWins, verdict.reason],
       account: wallet.account!,
@@ -384,8 +384,8 @@ export async function claimPayment(id: bigint) {
   const { hash } = await send("seller", `claim payment for #${id} (challenge window closed)`, () => {
     const wallet = walletFor("SELLER");
     return wallet.writeContract({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       functionName: "claimPayment",
       args: [id],
       account: wallet.account!,
@@ -399,8 +399,8 @@ export async function sellerDisclose(id: bigint, key: Hex) {
   const { hash } = await send("seller", `disclose #${id} — publishing the key, embargo over`, () => {
     const wallet = walletFor("SELLER");
     return wallet.writeContract({
-      address: BAZAAR_ADDRESS,
-      abi: BAZAAR_ABI,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
       functionName: "disclose",
       args: [id, key],
       account: wallet.account!,

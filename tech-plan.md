@@ -1,4 +1,4 @@
-# Black Box Bazaar — Technical Plan
+# CyberBlock — Technical Plan
 
 Companion to `plan.md`. That doc is the *why*; this is the *what and how*. Nothing here is built yet.
 
@@ -86,7 +86,7 @@ Keep the oracle deterministic. An LLM in the verifier destroys the auditability 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ Base Sepolia                                                    │
-│   BlackBoxBazaar.sol  (listings, escrow, stakes, reveal, rep)   │
+│   CyberBlock.sol  (listings, escrow, stakes, reveal, rep)   │
 └──────────▲──────────────────────▲──────────────────────▲────────┘
            │ list / deliver /     │ resolve              │ buy / dispute
            │ settle               │                      │
@@ -122,7 +122,7 @@ Three actors, one contract, one web app. The oracle and both agents can all live
 
 ---
 
-## 3. Contract: `BlackBoxBazaar.sol`
+## 3. Contract: `CyberBlock.sol`
 
 Single contract, native ETH, no token.
 
@@ -290,7 +290,7 @@ Get the required deliverables first, differentiators second, polish last.
 | # | Task | Est. | Output |
 |---|---|---|---|
 | 1 | Init monorepo, install Foundry, `forge init contracts` | 15 min | Skeleton |
-| 2 | Write `BlackBoxBazaar.sol` + tests | 45 min | Passing `forge test` |
+| 2 | Write `CyberBlock.sol` + tests | 45 min | Passing `forge test` |
 | 3 | Deploy + verify on Base Sepolia | 15 min | **Contract address + explorer link** ✅ deliverable |
 | 4 | `packages/core`: crypto + types + EIP-712 | 20 min | Seal/wrap/open round-trips in a unit test |
 | 5 | Detector + OSV check + fixtures | 40 min | `pnpm detect fixtures/packages/evil-widget-1.2.0.tgz` prints a finding |
@@ -309,7 +309,7 @@ Roughly 5 hours end to end if nothing fights you. Steps 1–3 and 9 are non-nego
 ## 9. README skeleton (write after step 3, refine after step 10)
 
 ```
-# Black Box Bazaar — Supply-Chain Threat Intel
+# CyberBlock — Supply-Chain Threat Intel
 
 > One-line pitch (from plan.md §7, updated for the embargo framing).
 
