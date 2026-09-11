@@ -71,15 +71,17 @@ function Emblem({ effects, sandboxHash }: { effects: number; sandboxHash?: strin
         <circle cx="220" cy="220" r="200" stroke="#1C1C22" strokeDasharray="2 6" />
         <circle cx="220" cy="220" r="150" stroke="#2A2A32" />
         <circle cx="220" cy="220" r="150" stroke="#FF3B4A" strokeWidth="2" strokeDasharray={`${circ * frac} ${circ}`} transform="rotate(-90 220 220)" style={{ filter: "drop-shadow(0 0 8px rgba(255,59,74,.7))" }} />
-        <rect x="150" y="175" width="140" height="110" rx="6" stroke="#F2F2F4" strokeWidth="2" fill="#0B0B0E" />
-        <path d="M150 185l70 55 70-55" stroke="#F2F2F4" strokeWidth="2" />
-        <rect x="196" y="212" width="48" height="40" rx="4" fill="#050506" stroke="#FF3B4A" strokeWidth="2" />
-        <path d="M204 212v-8a16 16 0 0 1 32 0v8" stroke="#FF3B4A" strokeWidth="2" />
-        <circle cx="220" cy="232" r="4" fill="#FF3B4A" />
-        <text x="220" y="330" textAnchor="middle" fill="#FF3B4A" fontFamily="JetBrains Mono, monospace" fontSize="30" fontWeight="700">{effects}/7</text>
-        <text x="220" y="350" textAnchor="middle" fill="#63636E" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="3">EFFECTS · OBSERVED</text>
-        <text x="220" y="42" textAnchor="middle" fill="#63636E" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="2">{sandboxHash?.slice(0, 10)} · sandbox</text>
-        <text x="220" y="412" textAnchor="middle" fill="#63636E" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="2">sealed · xchacha20</text>
+        <g transform="translate(0 -35)">
+          <rect x="150" y="175" width="140" height="110" rx="6" stroke="#F2F2F4" strokeWidth="2" fill="#0B0B0E" />
+          <path d="M150 185l70 55 70-55" stroke="#F2F2F4" strokeWidth="2" />
+          <rect x="196" y="212" width="48" height="40" rx="4" fill="#050506" stroke="#FF3B4A" strokeWidth="2" />
+          <path d="M204 212v-8a16 16 0 0 1 32 0v8" stroke="#FF3B4A" strokeWidth="2" />
+          <circle cx="220" cy="232" r="4" fill="#FF3B4A" />
+          <text x="220" y="330" textAnchor="middle" fill="#FF3B4A" fontFamily="JetBrains Mono, monospace" fontSize="30" fontWeight="700">{effects}/7</text>
+          <text x="220" y="350" textAnchor="middle" fill="#63636E" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="3">EFFECTS · OBSERVED</text>
+        </g>
+        <text x="220" y="50" textAnchor="middle" fill="#63636E" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="2">{sandboxHash?.slice(0, 10)} · sandbox</text>
+        <text x="220" y="395" textAnchor="middle" fill="#63636E" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="2">sealed · xchacha20</text>
       </svg>
     </div>
   );
