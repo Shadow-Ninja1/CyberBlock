@@ -480,6 +480,13 @@ export async function settleFromWallet(account: Address, id: bigint): Promise<He
   await waitReceipt(hash);
   return hash;
 }
+/** Buyer reclaims price + stake when a paid seller never delivered before the deadline. */
+export async function claimTimeoutFromWallet(account: Address, id: bigint): Promise<Hex> {
+  await ensureChain();
+  const hash = await wallet().writeContract({ account, chain: CHAIN, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "claimTimeout", args: [id] });
+  await waitReceipt(hash);
+  return hash;
+}
 
 export async function discloseFromWallet(account: Address, id: bigint, finding?: Finding): Promise<Hex> {
   const key = await resolveKey(account, id, finding);

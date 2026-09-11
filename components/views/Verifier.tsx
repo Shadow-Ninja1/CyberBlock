@@ -8,7 +8,7 @@ import type { ViewProps } from "./types";
 export default function Verifier({ listings, busy, act, sandboxHash }: ViewProps) {
   const disclosed = listings.filter((l) => l.status === 6);
   return (
-    <div className="px-10 lg:px-20 pt-11 pb-24 max-w-[1300px] flex flex-col gap-14">
+    <div className="px-5 sm:px-10 lg:px-20 pt-11 pb-24 max-w-[1300px] flex flex-col gap-14">
       <div className="flex flex-col gap-2.5 max-w-[720px]">
         <Eyebrow>The oracle & the arbiter</Eyebrow>
         <h1 className="text-[34px] font-bold tracking-[-0.025em]">Two parties you have to trust. Here is how you check them.</h1>

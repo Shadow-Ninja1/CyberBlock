@@ -15,7 +15,7 @@ const FLOW = [
 export default function Overview({ go, sandboxHash, listings }: ViewProps) {
   const topEffects = Math.max(0, ...listings.map((l) => effectCount(l.effects)));
   return (
-    <div className="px-10 lg:px-20 pt-16 pb-24 max-w-[1300px]">
+    <div className="px-5 sm:px-10 lg:px-20 pt-16 pb-24 max-w-[1300px]">
       <div className="grid lg:grid-cols-[1fr_420px] gap-12 items-center">
         <div className="flex flex-col gap-7">
           <Eyebrow>Sealed npm threat intel · detonated on-chain</Eyebrow>

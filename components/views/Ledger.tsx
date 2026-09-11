@@ -16,12 +16,12 @@ export default function Ledger({ logs, explorer }: { logs: LogLine[]; explorer?:
 
   return (
     <div className={`fixed left-0 md:left-[72px] right-0 bottom-0 z-30 bg-[#070709] border-t border-line mono text-[12px] transition-[height] ${open ? "h-[300px]" : "h-11"}`}>
-      <button onClick={() => setOpen(!open)} className="w-full h-11 px-6 lg:px-10 flex items-center gap-6 text-left">
-        <span className="text-red-bright flex items-center gap-2">
+      <button onClick={() => setOpen(!open)} className="w-full h-11 px-4 sm:px-6 lg:px-10 flex items-center gap-3 sm:gap-6 text-left">
+        <span className="text-red-bright flex items-center gap-2 shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-red-bright live-dot" /> ledger
         </span>
         {!open && (
-          <span className="text-dim truncate flex-1">
+          <span className="text-dim truncate flex-1 min-w-0">
             {last ? (
               <>
                 <span className="text-faint">{t(last.at)}</span> <span style={{ color: ROLE[last.actor]?.color }}>{ROLE[last.actor]?.label.toLowerCase()}</span> {last.message}
@@ -31,7 +31,7 @@ export default function Ledger({ logs, explorer }: { logs: LogLine[]; explorer?:
             )}
           </span>
         )}
-        <span className="ml-auto text-faint">{logs.length} lines · {open ? "collapse ▾" : "expand ▴"}</span>
+        <span className="ml-auto shrink-0 text-faint whitespace-nowrap">{logs.length} lines · {open ? "collapse ▾" : "expand ▴"}</span>
       </button>
       {open && (
         <div ref={boxRef} className="h-[calc(300px-44px)] overflow-y-auto px-6 lg:px-10 pb-4 flex flex-col gap-1.5">

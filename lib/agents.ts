@@ -55,12 +55,19 @@ function sellerSecret(): Hex {
 export function keyForFinding(finding: Finding): Hex {
   return deriveKey(sellerSecret(), finding);
 }
-export function findingForTarget(targetLabel: string): Finding | null {
+// The fixture set never changes at runtime, so map targetLabel → finding once.
+let _targetIndex: Map<string, Finding> | null = null;
+function targetIndex(): Map<string, Finding> {
+  if (_targetIndex) return _targetIndex;
+  const m = new Map<string, Finding>();
   for (const file of allFindingFiles()) {
     const f = loadFinding(file);
-    if (`npm:${f.target.name}@${f.target.version}` === targetLabel) return f;
+    m.set(`npm:${f.target.name}@${f.target.version}`, f);
   }
-  return null;
+  return (_targetIndex = m);
+}
+export function findingForTarget(targetLabel: string): Finding | null {
+  return targetIndex().get(targetLabel) ?? null;
 }
 
 /** The simulated external advisory feed used to confirm the contingent share. */
@@ -358,6 +365,16 @@ export async function claimPayment(id: bigint) {
     const wallet = walletFor("SELLER");
     return wallet.writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "claimPayment", args: [id], account: wallet.account!, chain: wallet.chain });
   });
+  return { hash };
+}
+/** Buyer reclaims price + stake when a paid seller never delivered the key. This is
+ *  the escape hatch that keeps a Sold listing from stranding the buyer's escrow. */
+export async function buyerClaimTimeout(id: bigint) {
+  const { hash } = await send("buyer", `reclaim escrow for #${id} — the seller missed the delivery deadline`, () => {
+    const wallet = walletFor("BUYER");
+    return wallet.writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "claimTimeout", args: [id], account: wallet.account!, chain: wallet.chain });
+  });
+  record({ actor: "system", level: "ok", message: `#${id}: buyer refunded the price plus the seller's whole stake; the seller was slashed.` });
   return { hash };
 }
 

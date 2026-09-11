@@ -23,10 +23,12 @@ import {
 } from "./chain";
 import { openFinding } from "./crypto";
 import { sandboxSource } from "./sandbox";
+import { findingForTarget } from "./agents";
 import { Status, STATUS_LABEL, Contingent, effectList, type Finding } from "./types";
 
 const CHALLENGE_WINDOW = 60;
 const CONFIRMATION_WINDOW = 120;
+const DELIVERY_DEADLINE = 600; // matches the contract's DELIVERY_DEADLINE (10 min)
 
 export interface ListingView {
   id: number;
@@ -41,6 +43,10 @@ export interface ListingView {
   effectLabels: string[];
   novel: boolean;
   installBase: number;
+  /** True when the oracle host holds the finding for this listing, so the built-in
+   *  demo agents can drive deliver/settle/disclose/verify from the server. A listing
+   *  created by a wallet or the CLI is false: only its own author can advance it. */
+  serverManaged: boolean;
   // pricing
   startPriceEth: number;
   reservePriceEth: number;
@@ -64,6 +70,7 @@ export interface ListingView {
   soldAt: number;
   deliveredAt: number;
   disclosedAt: number;
+  deliveryDeadline: number | null;
   challengeEndsAt: number | null;
   embargoEndsAt: number | null;
   confirmationEndsAt: number | null;
@@ -120,6 +127,7 @@ async function toView(l: OnChainListing, repOf: (seller: Address) => Promise<Lis
     effectLabels: effectList(l.att.effects).map((e) => e.label),
     novel: l.att.novel,
     installBase: l.att.installBase,
+    serverManaged: findingForTarget(targetLabel) != null,
     startPriceEth: Number(l.auction.startPrice) / 1e18,
     reservePriceEth: Number(l.auction.reservePrice) / 1e18,
     currentPriceEth: Number(priceNow) / 1e18,
@@ -140,6 +148,7 @@ async function toView(l: OnChainListing, repOf: (seller: Address) => Promise<Lis
     soldAt,
     deliveredAt,
     disclosedAt,
+    deliveryDeadline: soldAt ? soldAt + DELIVERY_DEADLINE : null,
     challengeEndsAt: deliveredAt ? deliveredAt + CHALLENGE_WINDOW : null,
     embargoEndsAt: deliveredAt ? deliveredAt + Number(l.embargo) : null,
     confirmationEndsAt: disclosedAt ? disclosedAt + CONFIRMATION_WINDOW : null,

@@ -13,22 +13,22 @@ export default function Trade({ listings, now, busy, act, step, go }: ViewProps)
   const idx = step.done ? 7 : step.step;
 
   return (
-    <div className="px-10 lg:px-20 pt-10 pb-24 max-w-[1300px]">
+    <div className="px-5 sm:px-10 lg:px-20 pt-10 pb-24 max-w-[1300px]">
       <div className="grid grid-cols-6 gap-2.5">
         {STEPS.map((s, i) => {
           const n = i + 1;
           const state = n < idx ? "done" : n === idx ? "now" : "todo";
           return (
-            <div key={s} className="flex flex-col gap-2.5">
+            <div key={s} className="flex flex-col gap-2.5 min-w-0">
               <div className={`h-[3px] rounded-full ${state === "done" ? "bg-red" : state === "now" ? "bg-red-bright shadow-[0_0_12px_rgba(255,59,74,.9)]" : "bg-line"}`} />
-              <div className={`mono text-[9.5px] tracking-[0.1em] uppercase ${state === "now" ? "text-red-bright" : state === "done" ? "text-dim" : "text-faint"}`}>0{n} {s} {state === "done" && "✓"}</div>
+              <div className={`mono text-[9.5px] tracking-[0.1em] uppercase truncate ${state === "now" ? "text-red-bright" : state === "done" ? "text-dim" : "text-faint"}`}>0{n} <span className="hidden sm:inline">{s} {state === "done" && "✓"}</span></div>
             </div>
           );
         })}
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_480px] gap-12 mt-14 items-start">
-        <div className="flex flex-col gap-7 max-w-[600px]">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_480px] gap-12 mt-14 items-start">
+        <div className="flex flex-col gap-7 max-w-[600px] min-w-0">
           <div className="flex items-center gap-3">
             <span className="w-2.5 h-2.5 rounded-sm" style={{ background: role.color, boxShadow: `0 0 10px ${role.color}` }} />
             <span className="mono text-[11px] tracking-[0.16em] uppercase" style={{ color: role.color }}>
@@ -70,7 +70,7 @@ export default function Trade({ listings, now, busy, act, step, go }: ViewProps)
           </div>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 min-w-0">
           {last ? <SealedObject l={last} now={now} onOpen={() => go("market", last.id)} /> : <EmptyObject />}
           <div className="grid grid-cols-4 gap-2">
             {(["seller", "buyer", "oracle", "arbiter"] as const).map((r) => {

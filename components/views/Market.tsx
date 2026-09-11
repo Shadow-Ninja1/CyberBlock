@@ -7,7 +7,7 @@ import { statusCopy } from "../lifecycle";
 import { Button, Chip, Eyebrow, EffectTags, TimeLeft, eth, effectTone, fmtInstalls, short, type Tone } from "../ui";
 import type { ViewProps } from "./types";
 import { useWallet } from "../wallet";
-import { buyFromWallet, deliverFromWallet, discloseFromWallet, settleFromWallet, receiveDelivery, keyById, txUrl } from "@/lib/browser";
+import { buyFromWallet, deliverFromWallet, discloseFromWallet, settleFromWallet, claimTimeoutFromWallet, receiveDelivery, keyById, txUrl } from "@/lib/browser";
 import type { Finding } from "@/lib/types";
 
 export default function Market({ listings, now, busy, act, selected, setSelected, explorer }: ViewProps & { selected: number | null; setSelected: (id: number | null) => void }) {
@@ -16,7 +16,7 @@ export default function Market({ listings, now, busy, act, selected, setSelected
 
   return (
     <div className="flex min-h-[calc(100vh-56px-44px)]">
-      <div className="flex-1 min-w-0 px-10 lg:px-20 pt-11 pb-24">
+      <div className="flex-1 min-w-0 px-5 sm:px-10 lg:px-20 pt-11 pb-24">
         <div className="flex flex-col gap-2.5 max-w-[680px]">
           <Eyebrow>Sealed findings</Eyebrow>
           <h1 className="text-[34px] font-bold tracking-[-0.025em]">What a buyer sees. Nothing more.</h1>
@@ -65,6 +65,7 @@ function Drawer({ l, now, busy, act, onClose }: { l: ListingView; now: number; b
   const history = buildHistory(l, now);
   const challengeOpen = l.status === 3 && l.challengeEndsAt != null && now < l.challengeEndsAt;
   const embargoOpen = l.status === 5 && l.embargoEndsAt != null && now < l.embargoEndsAt;
+  const timeoutReady = l.status === 2 && l.deliveryDeadline != null && now >= l.deliveryDeadline;
   const confirmOpen = l.status === 6 && l.contingentState === 1 && l.confirmationEndsAt != null && now < l.confirmationEndsAt;
   const confirmExpired = l.status === 6 && l.contingentState === 1 && l.confirmationEndsAt != null && now >= l.confirmationEndsAt;
 
@@ -142,20 +143,26 @@ function Drawer({ l, now, busy, act, onClose }: { l: ListingView; now: number; b
 
       <div className="mt-auto flex flex-col gap-2 pt-2">
         <div className="mono text-[10px] tracking-[0.14em] uppercase text-faint">Autonomous agents · demo</div>
+        {!l.serverManaged && l.status !== 6 && (
+          <div className="text-[12px] text-dim leading-relaxed">
+            Listed from a wallet or the CLI, so the demo agents can&apos;t drive it — the oracle host doesn&apos;t hold its key. Advance it from <span className="text-txt">Act with your wallet</span> above, as its seller or buyer.
+          </div>
+        )}
         <div className="flex flex-wrap gap-2.5">
-        {l.status === 1 && <Button size="sm" variant="secondary" onClick={() => act(`buy-${l.id}`, { action: "buy", id: l.id })} busy={busy === `buy-${l.id}`}>Buy as the vendor</Button>}
-        {l.status === 2 && <Button size="sm" variant="secondary" onClick={() => act(`deliver-${l.id}`, { action: "deliver", id: l.id })} busy={busy === `deliver-${l.id}`}>Deliver key</Button>}
-        {l.status === 3 && (
+        {l.serverManaged && l.status === 1 && <Button size="sm" variant="secondary" onClick={() => act(`buy-${l.id}`, { action: "buy", id: l.id })} busy={busy === `buy-${l.id}`}>Buy as the vendor</Button>}
+        {l.serverManaged && l.status === 2 && !timeoutReady && <Button size="sm" variant="secondary" onClick={() => act(`deliver-${l.id}`, { action: "deliver", id: l.id })} busy={busy === `deliver-${l.id}`}>Deliver key</Button>}
+        {l.serverManaged && l.status === 2 && timeoutReady && <Button size="sm" variant="danger" onClick={() => act(`timeout-${l.id}`, { action: "timeout", id: l.id })} busy={busy === `timeout-${l.id}`}>Refund the buyer (seller timed out)</Button>}
+        {l.serverManaged && l.status === 3 && (
           <>
             <Button size="sm" disabled={challengeOpen} title={challengeOpen ? "Unlocks when the challenge window closes" : undefined} onClick={() => act(`settle-${l.id}`, { action: "settle", id: l.id })} busy={busy === `settle-${l.id}`}>Release base</Button>
             <Button size="sm" variant="danger" onClick={() => act(`challenge-${l.id}`, { action: "challenge", id: l.id })} busy={busy === `challenge-${l.id}`}>Challenge the trace</Button>
           </>
         )}
-        {l.status === 4 && <Button size="sm" onClick={() => act(`resolve-${l.id}`, { action: "resolve", id: l.id })} busy={busy === `resolve-${l.id}`}>Arbiter re-detonates</Button>}
-        {l.status === 5 && <Button size="sm" disabled={embargoOpen} title={embargoOpen ? "Unlocks when the embargo ends" : undefined} onClick={() => act(`disclose-${l.id}`, { action: "disclose", id: l.id })} busy={busy === `disclose-${l.id}`}>Publish to everyone</Button>}
-        {confirmOpen && <Button size="sm" onClick={() => act(`confirm-${l.id}`, { action: "confirm", id: l.id })} busy={busy === `confirm-${l.id}`}>Record advisory</Button>}
-        {confirmExpired && <Button size="sm" variant="secondary" onClick={() => act(`expire-${l.id}`, { action: "expire", id: l.id })} busy={busy === `expire-${l.id}`}>Return contingent</Button>}
-        {l.status === 6 && (
+        {l.serverManaged && l.status === 4 && <Button size="sm" onClick={() => act(`resolve-${l.id}`, { action: "resolve", id: l.id })} busy={busy === `resolve-${l.id}`}>Arbiter re-detonates</Button>}
+        {l.serverManaged && l.status === 5 && <Button size="sm" disabled={embargoOpen} title={embargoOpen ? "Unlocks when the embargo ends" : undefined} onClick={() => act(`disclose-${l.id}`, { action: "disclose", id: l.id })} busy={busy === `disclose-${l.id}`}>Publish to everyone</Button>}
+        {l.serverManaged && confirmOpen && <Button size="sm" onClick={() => act(`confirm-${l.id}`, { action: "confirm", id: l.id })} busy={busy === `confirm-${l.id}`}>Record advisory</Button>}
+        {l.serverManaged && confirmExpired && <Button size="sm" variant="secondary" onClick={() => act(`expire-${l.id}`, { action: "expire", id: l.id })} busy={busy === `expire-${l.id}`}>Return contingent</Button>}
+        {l.serverManaged && l.status === 6 && (
           <Button size="sm" busy={verifying} onClick={async () => {
             setVerifying(true);
             const res = await fetch("/api/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: l.id }) });
@@ -241,6 +248,7 @@ function WalletActions({ l, now }: { l: ListingView; now: number }) {
   const haveKey = keyById(BigInt(l.id)) != null;
   const challengeClosed = l.challengeEndsAt != null && now >= l.challengeEndsAt;
   const embargoOver = l.embargoEndsAt != null && now >= l.embargoEndsAt;
+  const timeoutReady = l.status === 2 && l.deliveryDeadline != null && now >= l.deliveryDeadline;
 
   async function go(key: string, fn: () => Promise<`0x${string}` | void>, okText: string) {
     setBusy(key);
@@ -265,6 +273,8 @@ function WalletActions({ l, now }: { l: ListingView; now: number }) {
     actions.push(<Button key="deliver" size="sm" busy={busy === "deliver"} disabled={!haveKey} title={haveKey ? undefined : "List from this browser to deliver here"} onClick={() => go("deliver", () => deliverFromWallet(w.address!, BigInt(l.id)), `Delivered the key for #${l.id}.`)}>Deliver the key</Button>);
   if ((l.status === 3 || l.status >= 5) && isBuyer)
     actions.push(<Button key="recv" size="sm" variant="secondary" busy={busy === "recv"} onClick={() => go("recv", async () => { setReceived(await receiveDelivery(BigInt(l.id), l.contentHash)); }, "Decrypted your copy below.")}>Decrypt my copy</Button>);
+  if (l.status === 2 && isBuyer && timeoutReady)
+    actions.push(<Button key="timeout" size="sm" variant="danger" busy={busy === "timeout"} onClick={() => go("timeout", () => claimTimeoutFromWallet(w.address!, BigInt(l.id)), `Reclaimed your escrow plus the seller's stake for #${l.id}.`)}>Reclaim my escrow (seller timed out)</Button>);
   if (l.status === 3 && challengeClosed)
     actions.push(<Button key="settle" size="sm" variant="secondary" busy={busy === "settle"} onClick={() => go("settle", () => settleFromWallet(w.address!, BigInt(l.id)), `Released the base to the seller.`)}>Release base to seller</Button>);
   if (l.status === 5 && isSeller)

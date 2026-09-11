@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   sellerList, buyById, deliverById, discloseById, resolveById,
-  buyerChallenge, claimPayment, oracleConfirm, expireContingent, requestAttestation,
+  buyerChallenge, claimPayment, buyerClaimTimeout, oracleConfirm, expireContingent, requestAttestation,
 } from "@/lib/agents";
 import { tail, record } from "@/lib/store";
 
@@ -36,6 +36,10 @@ export async function POST(req: Request) {
       case "settle":
         if (id === undefined) throw new Error("id required");
         await claimPayment(id);
+        break;
+      case "timeout":
+        if (id === undefined) throw new Error("id required");
+        await buyerClaimTimeout(id);
         break;
       case "disclose":
         if (id === undefined) throw new Error("id required");

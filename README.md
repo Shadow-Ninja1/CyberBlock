@@ -5,7 +5,7 @@
 Buyers purchase npm supply-chain threat intel they cannot inspect before paying. A neutral oracle runs the seller's reproduction script in a sandbox, records exactly what the package did, and signs those observed effects *before* the finding can be listed. Buyers bid down a Dutch auction on the observed effects and a one-sentence outcome alone — there is no severity score to trust. After a short embargo the decryption key is published on-chain and the finding becomes free for every defender.
 
 - **Live app:** _add your Vercel URL_
-- **Contract (Base Sepolia):** [0x5a7bd8c64058996401345a66dad064724afd9e36](https://sepolia.basescan.org/address/0x5a7bd8c64058996401345a66dad064724afd9e36)
+- **Contract (Base Sepolia):** [0x85bc78f3fec1b8e2e4196980fd65acf9924f6987](https://sepolia.basescan.org/address/0x85bc78f3fec1b8e2e4196980fd65acf9924f6987)
 - **Demo video:** _add link_
 
 ---
@@ -142,7 +142,17 @@ Or run the web app: `npm run dev` → http://localhost:3000
 
 ```bash
 export ORACLE_ADDRESS=<deployer> ARBITER_ADDRESS=<arbiter>
-npm run deploy    # deploys, funds seller/buyer/arbiter, writes lib/contract.json
+npm run deploy    # deploys, tops seller/buyer/arbiter up to 0.015 ETH, writes lib/contract.json
+npm run fund      # re-top-up the three demo agents any time they run low
+```
+
+`deploy` funds the three demo agents up to 0.015 ETH each — enough for the second
+listing, whose auction opens at the seller's grown reputation cap, and the arbiter's
+resolve on the challenge path. If the built-in walkthrough ever reverts with
+insufficient funds, run `npm run fund`. To verify the source on Basescan:
+
+```bash
+cd contracts && npx hardhat verify --network baseSepolia <address> <oracle> <arbiter>
 ```
 
 ## Repo layout

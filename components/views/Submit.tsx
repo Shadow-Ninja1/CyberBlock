@@ -182,7 +182,7 @@ export default function Submit({ go }: ViewProps) {
   }
 
   return (
-    <div className="px-10 lg:px-20 pt-11 pb-24 max-w-[1000px] flex flex-col gap-8">
+    <div className="px-5 sm:px-10 lg:px-20 pt-11 pb-24 max-w-[1000px] flex flex-col gap-8">
       <div className="flex flex-col gap-2.5 max-w-[720px]">
         <Eyebrow>Sell a finding · as yourself</Eyebrow>
         <h1 className="text-[34px] font-bold tracking-[-0.025em]">List a real finding from your wallet.</h1>

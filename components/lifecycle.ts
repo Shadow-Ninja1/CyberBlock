@@ -56,11 +56,20 @@ const NEXT_FIXTURE = ["evil-widget-1.2.0.json", "sneaky-utils-0.4.1.json"];
 
 /** Works out the single most useful thing to do next. */
 export function nextStep(listings: ListingView[], now: number): NextStep {
-  const active = [...listings].reverse().find((l) => (l.status >= 1 && l.status <= 5) || (l.status === 6 && l.contingentState === Contingent.Escrowed));
+  // The walkthrough drives the built-in demo agents on the server, so it can only
+  // advance a listing whose finding the oracle host holds. A listing created from a
+  // wallet or the CLI (serverManaged === false) is driven by its own author in the
+  // Market tab and must never capture the guided flow, or its buttons would 500.
+  const active = [...listings]
+    .reverse()
+    .find((l) => l.serverManaged && ((l.status >= 1 && l.status <= 5) || (l.status === 6 && l.contingentState === Contingent.Escrowed)));
 
   if (!active) {
-    const fixture = NEXT_FIXTURE[Math.min(listings.length, NEXT_FIXTURE.length - 1)];
-    const first = listings.length === 0;
+    // Count only the demo listings the walkthrough itself created, so a wallet or
+    // CLI listing on the market never makes the flow think a cycle has run.
+    const managedCount = listings.filter((l) => l.serverManaged).length;
+    const fixture = NEXT_FIXTURE[Math.min(managedCount, NEXT_FIXTURE.length - 1)];
+    const first = managedCount === 0;
     return {
       step: first ? 1 : 6,
       actor: "seller",
@@ -86,7 +95,18 @@ export function nextStep(listings: ListingView[], now: number): NextStep {
         body: `Its agent sees only what the sandbox observed — ${active.effectLabels.join(", ") || "the effects"} — plus the one-sentence outcome, the install base and the seller's record. If that clears its policy it buys at the current falling price of ${eth(active.currentPriceEth)} ETH. It never opens the finding.`,
         action: { label: "Let the vendor evaluate and buy", key: `buy-${id}`, body: { action: "buy", id } },
       };
-    case 2:
+    case 2: {
+      const timedOut = active.deliveryDeadline !== null && now >= active.deliveryDeadline;
+      if (timedOut)
+        return {
+          step: 3,
+          actor: "buyer",
+          listingId: id,
+          title: "The seller went dark.",
+          accent: "Refund the buyer.",
+          body: "The delivery deadline passed with no key. The buyer reclaims the price plus the whole of the seller's stake, and the seller is slashed — so a paid seller can never strand the escrow.",
+          action: { label: "Refund the buyer", key: `timeout-${id}`, body: { action: "timeout", id }, danger: true },
+        };
       return {
         step: 3,
         actor: "seller",
@@ -96,6 +116,7 @@ export function nextStep(listings: ListingView[], now: number): NextStep {
         body: "The money is in escrow. The seller sends the decryption key, wrapped so only this buyer can open it. The buyer decrypts and checks the result hashes to exactly what the oracle graded.",
         action: { label: "Deliver the key", key: `deliver-${id}`, body: { action: "deliver", id } },
       };
+    }
     case 3: {
       const ready = active.challengeEndsAt !== null && now >= active.challengeEndsAt;
       return {

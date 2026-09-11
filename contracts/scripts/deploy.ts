@@ -40,21 +40,24 @@ async function main() {
     console.log(`explorer  https://sepolia.basescan.org/address/${bazaar.address}`);
   }
 
-  // On a testnet, top up the seller, buyer and arbiter from the deployer so the demo
-  // only needs ONE funded address. Configured accounts are [deployer, seller, buyer, arbiter].
+  // On a testnet, top the seller, buyer and arbiter UP TO a target from the deployer
+  // so the demo only needs ONE funded address. The target must cover the second
+  // listing's auction, which opens at the seller's grown reputation cap (~0.008 ETH),
+  // plus gas — a flat 0.003 left the buyer unable to buy it. Configured accounts are
+  // [deployer, seller, buyer, arbiter]. Re-run `npm run fund` any time they run low.
   if (chainId !== 31337) {
     const wallets = await hre.viem.getWalletClients();
-    const topUp = 3_000_000_000_000_000n; // 0.003 ETH each — plenty for the demo
+    const target = 15_000_000_000_000_000n; // 0.015 ETH each
     for (const w of wallets.slice(1, 4)) {
       const bal = await publicClient.getBalance({ address: w.account.address });
-      if (bal >= topUp) {
+      if (bal >= target) {
         console.log(`fund      ${w.account.address} already has ${Number(bal) / 1e18} ETH`);
         continue;
       }
       try {
-        const hash = await deployer.sendTransaction({ to: w.account.address, value: topUp });
+        const hash = await deployer.sendTransaction({ to: w.account.address, value: target - bal });
         await publicClient.waitForTransactionReceipt({ hash });
-        console.log(`fund      ${w.account.address} += ${Number(topUp) / 1e18} ETH`);
+        console.log(`fund      ${w.account.address} += ${Number(target - bal) / 1e18} ETH -> ${Number(target) / 1e18} ETH`);
       } catch (e) {
         console.warn(`fund      could not top up ${w.account.address}: ${(e as Error).message}`);
       }

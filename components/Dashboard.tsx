@@ -127,23 +127,23 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
 
       <div className="md:pl-[72px] pb-11">
         {/* top bar */}
-        <header className="sticky top-0 z-30 h-14 border-b border-line bg-bg/85 backdrop-blur-xl flex items-center justify-between px-6 lg:px-10">
-          <div className="flex items-center gap-3.5">
-            <span className="font-bold text-[15px] tracking-tight">CyberBlock</span>
+        <header className="sticky top-0 z-30 h-14 border-b border-line bg-bg/85 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-6 lg:px-10">
+          <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
+            <span className="font-bold text-[15px] tracking-tight shrink-0">CyberBlock</span>
             <span className="mono text-[11px] uppercase tracking-[0.18em] text-faint hidden sm:inline">{VIEWS.find((v) => v.id === current)?.label}</span>
-            <div className="md:hidden flex gap-1 ml-2">
+            <div className="md:hidden flex gap-0.5 ml-0.5">
               {VIEWS.map((v) => (
-                <button key={v.id} onClick={() => go(v.id)} className={`w-8 h-8 rounded grid place-items-center [&>svg]:w-4 [&>svg]:h-4 ${current === v.id ? "text-red-bright bg-red/15" : "text-faint"}`}>
+                <button key={v.id} onClick={() => go(v.id)} className={`w-7 h-7 rounded grid place-items-center [&>svg]:w-4 [&>svg]:h-4 ${current === v.id ? "text-red-bright bg-red/15" : "text-faint"}`}>
                   <v.icon />
                 </button>
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <WalletButton />
             <Chip tone={deployed ? "good" : "bad"}>
               <span className={`w-1.5 h-1.5 rounded-full ${deployed ? "bg-emerald-400 live-dot" : "bg-red-bright"}`} />
-              {c?.chainId === 84532 ? "Base Sepolia" : c ? `local #${c.chainId}` : "no chain"}
+              <span className="hidden sm:inline">{c?.chainId === 84532 ? "Base Sepolia" : c ? `local #${c.chainId}` : "no chain"}</span>
             </Chip>
             {deployed && c && (
               <a href={c.addressUrl} target="_blank" rel="noreferrer" title="Contract on Basescan" className="hidden sm:block">
@@ -157,7 +157,7 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
         </header>
 
         {(error || !deployed || refusal) && (
-          <div className="px-6 lg:px-10 pt-4 flex flex-col gap-2">
+          <div className="sticky top-14 z-20 px-6 lg:px-10 pt-4 flex flex-col gap-2">
             {!deployed && <Banner tone="bad">No contract address configured. Deploy the contract and restart the app.</Banner>}
             {error && <Banner tone="bad">{error}</Banner>}
             {refusal && (
@@ -170,7 +170,7 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
           </div>
         )}
 
-        <main key={current} className="rise">
+        <main key={current} className="rise overflow-x-hidden">
           {current === "overview" && <Overview {...props} />}
           {current === "trade" && <Trade {...props} />}
           {current === "market" && <Market {...props} selected={selected} setSelected={setSelected} />}

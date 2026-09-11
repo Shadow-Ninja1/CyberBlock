@@ -9,6 +9,7 @@
     "contracts:build": "npm --prefix contracts run build",
     "contracts:test": "npm --prefix contracts run test",
     "deploy": "npm --prefix contracts run deploy",
+    "fund": "tsx scripts/fund-testnet.ts",
     "fixtures": "tsx scripts/build-fixtures.ts",
     "demo": "tsx scripts/demo.ts",
     "cli": "tsx scripts/cli.ts"
