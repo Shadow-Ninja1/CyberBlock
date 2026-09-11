@@ -29,6 +29,7 @@ import {
   sellerRep,
   waitFor,
   txUrl,
+  type OnChainListing,
 } from "./chain";
 import { sealFinding, wrapKey, unwrapKey, openFinding, publicKeyOf, deriveKey } from "./crypto";
 import { attest, adjudicate, loadArtifact } from "./oracle";
@@ -271,17 +272,38 @@ export async function sellerList(findingFile: string, opts: ListOpts = {}) {
 
 export interface BuyPolicy {
   budgetEth: number;
+  buyAtSecondsLeft: number;
   requireEffects: number; // bitmask the finding must exhibit
   requireNovel: boolean;
   maxSellerSlashRate: number;
 }
 
 export const DEFAULT_POLICY: BuyPolicy = {
-  budgetEth: 0.01,
+  budgetEth: 0.01, // hard cap, never exceeded
+  buyAtSecondsLeft: 5, // otherwise wait: bid only what the auction will ask with this long to go
   requireEffects: 0,
   requireNovel: true,
   maxSellerSlashRate: 0.34,
 };
+
+/** Price the Dutch auction will show at `at` (seconds), mirroring the contract's _priceAt. */
+function priceAt(a: { startPrice: bigint; reservePrice: bigint; startedAt: bigint; duration: bigint }, at: bigint): bigint {
+  if (at <= a.startedAt) return a.startPrice;
+  const elapsed = at - a.startedAt;
+  if (elapsed >= a.duration) return a.reservePrice;
+  return a.startPrice - ((a.startPrice - a.reservePrice) * elapsed) / a.duration;
+}
+
+/** The ceiling this buyer is willing to pay for a listing: the lower of the hard budget
+ *  and what the auction will ask with `buyAtSecondsLeft` seconds remaining. A patient
+ *  buyer never pays the opening price. */
+function bidCeiling(l: OnChainListing, policy: BuyPolicy): { ceiling: bigint; readyAt: number } {
+  const a = l.auction;
+  const readyAt = Number(a.startedAt + a.duration) - policy.buyAtSecondsLeft;
+  const target = priceAt(a, BigInt(readyAt));
+  const budget = BigInt(Math.floor(policy.budgetEth * 1e18));
+  return { ceiling: target < budget ? target : budget, readyAt };
+}
 
 /**
  * The buyer decides from the attested metadata alone — effects, outcome, install
@@ -309,8 +331,9 @@ export async function buyerEvaluate(id: bigint, policy = DEFAULT_POLICY) {
     slashRate,
   };
 
-  const budgetCeiling = policy.budgetEth;
-  const llm = await maybeAskClaude(facts, policy);
+  const { ceiling, readyAt } = bidCeiling(l, policy);
+  const budgetCeiling = Number(ceiling) / 1e18;
+  const llm = await maybeAskClaude(facts, policy, budgetCeiling);
   if (llm) {
     record({ actor: "buyer", level: llm.buy ? "ok" : "warn", message: `Claude policy: ${llm.reason}`, data: facts });
     return { ...facts, buy: llm.buy, priceCeilingEth: Math.min(llm.maxPriceEth ?? budgetCeiling, budgetCeiling), reason: llm.reason, decidedBy: "claude" as const };
@@ -318,19 +341,20 @@ export async function buyerEvaluate(id: bigint, policy = DEFAULT_POLICY) {
 
   const reasons: string[] = [];
   let buy = true;
-  if (priceEth > policy.budgetEth) (buy = false), reasons.push(`price ${priceEth} > budget ${policy.budgetEth}`);
+  if (l.auction.reservePrice > BigInt(Math.floor(policy.budgetEth * 1e18))) (buy = false), reasons.push(`reserve ${fmt(l.auction.reservePrice)} > budget ${policy.budgetEth}`);
   if (policy.requireEffects && (l.att.effects & policy.requireEffects) !== policy.requireEffects) (buy = false), reasons.push("required effects absent");
   if (policy.requireNovel && !l.att.novel) (buy = false), reasons.push("not novel");
   if (slashRate > policy.maxSellerSlashRate) (buy = false), reasons.push(`seller slash rate ${slashRate.toFixed(2)} too high`);
 
+  const secondsToWait = Math.max(0, readyAt - Math.floor(Date.now() / 1000));
   const reason = buy
-    ? `effects [${effects.join(", ")}], novel, ${fmt(price)} ETH within budget, seller ${rep.sold} sold / ${rep.confirmed} confirmed / ${rep.slashed} slashed — buying`
+    ? `effects [${effects.join(", ")}], novel, seller ${rep.sold} sold / ${rep.confirmed} confirmed / ${rep.slashed} slashed — worth ${fmt(ceiling)} ETH; asking ${fmt(price)}${price > ceiling ? `, waiting ~${secondsToWait}s for the auction to decay` : " — buying"}`
     : `skipping: ${reasons.join("; ")}`;
   record({ actor: "buyer", level: buy ? "ok" : "warn", message: reason, data: facts });
   return { ...facts, buy, priceCeilingEth: budgetCeiling, reason, decidedBy: "policy" as const };
 }
 
-async function maybeAskClaude(facts: Record<string, unknown>, policy: BuyPolicy) {
+async function maybeAskClaude(facts: Record<string, unknown>, policy: BuyPolicy, ceilingEth: number) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return null;
   try {
@@ -342,8 +366,8 @@ async function maybeAskClaude(facts: Record<string, unknown>, policy: BuyPolicy)
       max_tokens: 400,
       thinking: { type: "adaptive" },
       system:
-        "You are an autonomous procurement agent for a security vendor buying supply-chain threat intel sight-unseen. You see only a signed grade: the effects a sandbox OBSERVED the package perform, a one-sentence outcome, install base, the auction's current price, the contingent share (escrowed until an external advisory confirms the finding), and the seller's record (sold/confirmed/slashed). You never see the finding itself. Decide whether to buy now and your max price. Respond as strict JSON {\"buy\": boolean, \"maxPriceEth\": number, \"reason\": string}. reason under 30 words.",
-      messages: [{ role: "user", content: `Policy budget ${policy.budgetEth} ETH.\nListing: ${JSON.stringify(facts)}\nBuy?` }],
+        "You are an autonomous procurement agent for a security vendor buying supply-chain threat intel sight-unseen. You see only a signed grade: the effects a sandbox OBSERVED the package perform, a one-sentence outcome, install base, the auction's current price, the contingent share (escrowed until an external advisory confirms the finding), and the seller's record (sold/confirmed/slashed). You never see the finding itself. The price is a Dutch auction: it only falls, so a max price below the current price means wait and buy once it decays to that level. Decide whether to buy and your max price. Respond as strict JSON {\"buy\": boolean, \"maxPriceEth\": number, \"reason\": string}. reason under 30 words.",
+      messages: [{ role: "user", content: `Policy budget ${policy.budgetEth} ETH hard cap; our target price for this auction is ${ceilingEth} ETH.\nListing: ${JSON.stringify(facts)}\nBuy?` }],
     } as any);
     const text = msg.content.find((c) => c.type === "text")?.text ?? "";
     const json = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
@@ -357,12 +381,23 @@ async function maybeAskClaude(facts: Record<string, unknown>, policy: BuyPolicy)
 export async function buyerBuy(id: bigint, priceCeilingEth = DEFAULT_POLICY.budgetEth) {
   const buyerPub = publicKeyOf(process.env.BUYER_PRIVATE_KEY as Hex);
   const wallet = walletFor("BUYER");
-  const now = await currentPrice(id);
-  // The auction price only decays, so the price read here is an upper bound at
-  // execution time: send exactly it (contract refunds any decrease). Sending the
-  // full budget ceiling would need the whole budget in-balance even though most is
-  // refunded, which needlessly fails when the account is low.
   const ceiling = BigInt(Math.floor(priceCeilingEth * 1e18));
+  // Dutch auction: the price only falls, so if it is still above our ceiling, wait
+  // for it to decay rather than overpay. Stop waiting once the auction has hit its
+  // reserve, since the price can fall no further.
+  let now = await currentPrice(id);
+  if (now > ceiling) {
+    const l = await readListing(id);
+    const endsAt = Number(l.auction.startedAt + l.auction.duration);
+    record({ actor: "buyer", level: "info", message: `#${id} asks ${fmt(now)} ETH, above my ${fmt(ceiling)} ceiling — watching the auction decay`, data: { priceEth: Number(now) / 1e18, ceilingEth: priceCeilingEth } });
+    while (now > ceiling && Math.floor(Date.now() / 1000) < endsAt) {
+      await new Promise((r) => setTimeout(r, 1000));
+      now = await currentPrice(id);
+    }
+  }
+  // Send exactly the live price (contract refunds any further decrease). Sending the
+  // full ceiling would need it all in-balance even though most is refunded, which
+  // needlessly fails when the account is low.
   const value = now > ceiling ? ceiling : now;
   const { hash } = await send("buyer", `buy listing #${id} (live price ${fmt(now)} ETH, ceiling ${fmt(ceiling)})`, () =>
     wallet.writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [id, buyerPub], value, account: wallet.account!, chain: wallet.chain }),
