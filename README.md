@@ -5,7 +5,7 @@
 Buyers purchase npm supply-chain threat intel they cannot inspect before paying. A neutral oracle grades each sealed finding and signs it *before* it can be listed; the buyer pays from the grade alone; after a short embargo the decryption key is published on-chain and the finding becomes free for every defender. What the buyer actually pays for is **early access** to a disclosure that is going to happen anyway.
 
 - **Live app:** _add your Vercel URL_
-- **Contract (Base Sepolia):** _add your Basescan link after `npm run deploy`_
+- **Contract (Base Sepolia):** [0x8f87d8f4725f7ca9fc5cb972aea1854431eab2e7](https://sepolia.basescan.org/address/0x8f87d8f4725f7ca9fc5cb972aea1854431eab2e7)
 - **Demo video:** _add link_
 
 ---
