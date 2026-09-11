@@ -1,0 +1,24 @@
+{
+  "schema": "bbb.finding.v1",
+  "target": {
+    "ecosystem": "npm",
+    "name": "clean-lib",
+    "version": "2.0.0",
+    "artifact": "fixtures/packages/clean-lib-2.0.0.tgz"
+  },
+  "title": "clean-lib@2.0.0 backdoor (claimed)",
+  "summary": "Seller claims a hidden backdoor. There isn't one; the detector finds nothing.",
+  "iocs": {
+    "domains": [
+      "evil.example"
+    ],
+    "files": [
+      "index.js"
+    ],
+    "snippets": [
+      "backdoor"
+    ]
+  },
+  "remediation": "n/a",
+  "reporter": "chancer.eth"
+}

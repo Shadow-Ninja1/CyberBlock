@@ -1,0 +1,25 @@
+{
+  "schema": "bbb.finding.v1",
+  "target": {
+    "ecosystem": "npm",
+    "name": "overhyped-logger",
+    "version": "1.0.3",
+    "artifact": "fixtures/packages/overhyped-logger-1.0.3.tgz"
+  },
+  "title": "overhyped-logger@1.0.3 steals SSH keys and drops a reverse shell (claimed)",
+  "summary": "Seller claims credential theft of ~/.ssh/id_rsa and a child_process reverse shell to attacker.example. The artifact does neither; it only makes one analytics call. The writeup is inflated to justify a higher price.",
+  "iocs": {
+    "domains": [
+      "attacker.example"
+    ],
+    "files": [
+      "scripts/reverse-shell.js"
+    ],
+    "snippets": [
+      "id_rsa",
+      "child_process"
+    ]
+  },
+  "remediation": "n/a",
+  "reporter": "chancer.eth"
+}

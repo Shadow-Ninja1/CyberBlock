@@ -1,0 +1,25 @@
+{
+  "schema": "bbb.finding.v1",
+  "target": {
+    "ecosystem": "npm",
+    "name": "evil-widget",
+    "version": "1.2.0",
+    "artifact": "fixtures/packages/evil-widget-1.2.0.tgz"
+  },
+  "title": "evil-widget@1.2.0 exfiltrates ~/.npmrc and env on postinstall",
+  "summary": "The postinstall script eval()s a bundled 'telemetry' module that reads the user's ~/.npmrc and full process environment, base64-encodes them, and POSTs them to telemetry-cdn.xyz. Any CI job or developer running `npm install` leaks registry tokens and secrets.",
+  "iocs": {
+    "domains": [
+      "telemetry-cdn.xyz"
+    ],
+    "files": [
+      "scripts/telemetry.js"
+    ],
+    "snippets": [
+      ".npmrc",
+      "process.env"
+    ]
+  },
+  "remediation": "Pin away from 1.2.0, rotate any npm tokens present on machines that installed it, and block telemetry-cdn.xyz egress.",
+  "reporter": "researcher.eth"
+}

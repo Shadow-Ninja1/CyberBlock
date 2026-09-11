@@ -1,0 +1,40 @@
+{
+  "name": "black-box-bazaar",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "contracts:build": "npm --prefix contracts run build",
+    "contracts:test": "npm --prefix contracts run test",
+    "deploy": "npm --prefix contracts run deploy",
+    "fixtures": "tsx scripts/build-fixtures.ts",
+    "detect": "tsx scripts/detect.ts",
+    "demo": "tsx scripts/demo.ts",
+    "seller": "tsx scripts/seller.ts",
+    "buyer": "tsx scripts/buyer.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@noble/ciphers": "^1.3.0",
+    "@noble/hashes": "^1.8.0",
+    "dotenv": "^16.6.1",
+    "eciesjs": "^0.4.18",
+    "next": "^15.5.25",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tar": "^7.5.22",
+    "viem": "^2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "^10.5.6",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^3.4.19",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}
