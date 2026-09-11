@@ -163,8 +163,8 @@ const commands: Record<string, (args: string[]) => Promise<unknown>> = {
     const reservePrice = cap / 4n;
     const stake = await minStake(reservePrice);
     const contingentBps = Math.round(Number(flag(rest, "contingent") ?? 50) * 100);
-    const duration = 3n * 60n;
-    const embargo = 2n * 60n;
+    const duration = 30n;
+    const embargo = 30n;
 
     const sent = await tx("list", [att, graded.signature, graded.outcome, startPrice, reservePrice, duration, contingentBps, embargo, graded.targetLabel, sealed.ciphertext], stake);
 

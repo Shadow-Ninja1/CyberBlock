@@ -99,11 +99,11 @@ async function main() {
   await buyerReceive(id);
   await status(id);
 
-  await waitSeconds(60 + 5, "challenge window closes");
+  await waitSeconds(30 + 5, "challenge window closes");
   await claimPayment(id);
   await status(id);
 
-  await waitSeconds(120 + 5, "embargo expires");
+  await waitSeconds(30 + 5, "embargo expires");
   const disc = await sellerDisclose(id, listed.sealed.key);
   await status(id);
   note(`disclosure tx: ${txUrl(disc.hash)}`);

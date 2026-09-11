@@ -112,14 +112,14 @@ contract CyberBlock {
     // NOTE: these windows are compressed so the whole lifecycle is walkable live in a
     // demo. Production would measure the auction and challenge window in hours, the
     // embargo in days and the confirmation window in weeks.
-    uint64 public constant MIN_AUCTION = 1 minutes;
+    uint64 public constant MIN_AUCTION = 30 seconds;
     uint64 public constant MAX_AUCTION = 30 days;
     uint64 public constant DELIVERY_DEADLINE = 10 minutes;
-    uint64 public constant CHALLENGE_WINDOW = 1 minutes;
-    uint64 public constant MIN_EMBARGO = 2 minutes; // must exceed CHALLENGE_WINDOW
+    uint64 public constant CHALLENGE_WINDOW = 30 seconds;
+    uint64 public constant MIN_EMBARGO = 30 seconds; // must be >= CHALLENGE_WINDOW
     uint64 public constant MAX_EMBARGO = 30 days;
-    uint64 public constant DISCLOSURE_GRACE = 2 minutes; // after this, anyone with K may claim the bond
-    uint64 public constant CONFIRMATION_WINDOW = 2 minutes; // after disclosure, how long an advisory may take
+    uint64 public constant DISCLOSURE_GRACE = 30 seconds; // after this, anyone with K may claim the bond
+    uint64 public constant CONFIRMATION_WINDOW = 30 seconds; // after disclosure, how long an advisory may take
 
     bytes32 private constant ATTESTATION_TYPEHASH =
         keccak256(

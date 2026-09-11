@@ -36,8 +36,8 @@ import { readTarball, run } from "./sandbox";
 import { record } from "./store";
 import { Status, effectList, type Finding, type LogLine, type SignedAttestation } from "./types";
 
-const DEFAULT_DURATION = 3n * 60n; // decay over 3 minutes in the demo
-const DEFAULT_EMBARGO = 2n * 60n; // MIN_EMBARGO
+const DEFAULT_DURATION = 30n; // decay over 30 seconds in the demo
+const DEFAULT_EMBARGO = 30n; // MIN_EMBARGO
 const DEFAULT_CONTINGENT_BPS = 5_000; // seller puts half the price on the outcome by default
 
 export function loadFinding(name: string): Finding {
@@ -262,7 +262,7 @@ export async function sellerList(findingFile: string, opts: ListOpts = {}) {
     actor: "seller",
     level: "ok",
     message: `listing #${id} live — buyers see only the effects + one-sentence outcome; price is falling until someone buys`,
-    data: { txHash: hash, startPrice: fmt(startPrice), reservePrice: fmt(reservePrice), contingentPct: contingentBps / 100, stake: fmt(stake), embargoMinutes: Number(embargo) / 60 },
+    data: { txHash: hash, startPrice: fmt(startPrice), reservePrice: fmt(reservePrice), contingentPct: contingentBps / 100, stake: fmt(stake), embargoSeconds: Number(embargo) },
   });
   return { listed: true as const, id, finding: att.finding, sealed: att.sealed };
 }

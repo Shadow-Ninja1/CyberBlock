@@ -97,7 +97,7 @@ function Drawer({ l, now, busy, act, onClose }: { l: ListingView; now: number; b
         <Mini k="Seller's bond" v={`${eth(l.stakeEth)} ETH`} />
         {l.status >= 2 && <Mini k="Base → seller" v={`${eth(l.basePriceEth)} ETH`} />}
         {l.status >= 2 && <Mini k="Escrowed on outcome" v={`${eth(l.contingentPriceEth)} ETH`} />}
-        <Mini k="Head start" v={`${l.embargoMinutes} min`} />
+        <Mini k="Head start" v={`${l.embargoSeconds} s`} />
       </div>
 
       <div className="flex flex-col gap-3">

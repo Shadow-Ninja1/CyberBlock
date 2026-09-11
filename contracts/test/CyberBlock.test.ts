@@ -16,12 +16,12 @@ const oracleAccount = privateKeyToAccount(ORACLE_PK);
 const arbiterAccount = privateKeyToAccount(ARBITER_PK);
 
 const MINUTE = 60;
-const MIN_AUCTION = 1 * MINUTE;
-const MIN_EMBARGO = 2 * MINUTE;
-const CHALLENGE_WINDOW = 1 * MINUTE;
+const MIN_AUCTION = 30;
+const MIN_EMBARGO = 30;
+const CHALLENGE_WINDOW = 30;
 const DELIVERY_DEADLINE = 10 * MINUTE;
-const DISCLOSURE_GRACE = 2 * MINUTE;
-const CONFIRMATION_WINDOW = 2 * MINUTE;
+const DISCLOSURE_GRACE = 30;
+const CONFIRMATION_WINDOW = 30;
 
 type Attestation = {
   artifactHash: Hex;
@@ -292,7 +292,8 @@ describe("CyberBlock", () => {
   describe("happy path", () => {
     it("pays the base at settlement, returns the bond on disclosure, and releases the contingent on confirmation", async () => {
       const { bazaar, seller, buyer, publicClient, oracleWallet } = await fixture();
-      const { stake } = await listFinding(bazaar, seller);
+      // Embargo longer than the challenge window so settlement and disclosure are distinct steps.
+      const { stake } = await listFinding(bazaar, seller, { embargo: BigInt(2 * MIN_EMBARGO) });
       const price = await buyNow(bazaar, buyer);
       const l0 = (await bazaar.read.getListing([1n])) as any;
       const base = l0.basePart as bigint;
@@ -382,7 +383,7 @@ describe("CyberBlock", () => {
       const { stake } = await listFinding(bazaar, seller);
       await buyNow(bazaar, buyer);
       await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
-      await time.increase(CHALLENGE_WINDOW + MIN_EMBARGO + 1);
+      await time.increase(MIN_EMBARGO + 1); // embargo over, but inside the seller's grace period
       await expect(bazaar.write.disclose([1n, KEY], { account: buyer.account })).to.be.rejectedWith("TooEarly");
       await time.increase(DISCLOSURE_GRACE);
       const got = await netReceived(publicClient, buyer.account.address, () =>

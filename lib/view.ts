@@ -26,8 +26,8 @@ import { sandboxSource } from "./sandbox";
 import { findingForTarget } from "./agents";
 import { Status, STATUS_LABEL, Contingent, effectList, type Finding } from "./types";
 
-const CHALLENGE_WINDOW = 60;
-const CONFIRMATION_WINDOW = 120;
+const CHALLENGE_WINDOW = 30;
+const CONFIRMATION_WINDOW = 30;
 const DELIVERY_DEADLINE = 600; // matches the contract's DELIVERY_DEADLINE (10 min)
 
 export interface ListingView {
@@ -60,7 +60,7 @@ export interface ListingView {
   auctionStartedAt: number;
   auctionEndsAt: number;
   stakeEth: number;
-  embargoMinutes: number;
+  embargoSeconds: number;
   // commitments
   artifactHash: Hex;
   contentHash: Hex;
@@ -140,7 +140,7 @@ async function toView(l: OnChainListing, repOf: (seller: Address) => Promise<Lis
     auctionStartedAt,
     auctionEndsAt: auctionStartedAt + Number(l.auction.duration),
     stakeEth: Number(l.stake) / 1e18,
-    embargoMinutes: Number(l.embargo) / 60,
+    embargoSeconds: Number(l.embargo),
     artifactHash: l.att.artifactHash,
     contentHash: l.att.contentHash,
     traceHash: l.att.traceHash,

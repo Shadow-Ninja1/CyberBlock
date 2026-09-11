@@ -59,9 +59,9 @@ export default function Submit({ go }: ViewProps) {
   // auction params
   const [startPriceEth, setStartPriceEth] = useState(0.002);
   const [reservePct, setReservePct] = useState(25);
-  const [durationMin, setDurationMin] = useState(3);
+  const [durationSec, setDurationSec] = useState(30);
   const [contingentPct, setContingentPct] = useState(50);
-  const [embargoMin, setEmbargoMin] = useState(2);
+  const [embargoSec, setEmbargoSec] = useState(30);
 
   const [cap, setCap] = useState<number | null>(null);
   const [busy, setBusy] = useState<"grade" | "list" | null>(null);
@@ -167,9 +167,9 @@ export default function Submit({ go }: ViewProps) {
       const res = await listFromWallet(w.address, graded, {
         startPriceEth,
         reserveFraction: reservePct / 100,
-        durationSeconds: Math.round(durationMin * 60),
+        durationSeconds: Math.round(durationSec),
         contingentBps: Math.round(contingentPct * 100),
-        embargoSeconds: Math.round(embargoMin * 60),
+        embargoSeconds: Math.round(embargoSec),
       });
       rememberListingKey(res.id, graded.key);
       setListed({ id: Number(res.id), hash: res.hash });
@@ -289,14 +289,14 @@ export default function Submit({ go }: ViewProps) {
         <div className="grid sm:grid-cols-3 gap-3">
           <NumField label="Start price (ETH)" value={startPriceEth} onChange={setStartPriceEth} step={0.0005} min={0} hint={cap != null ? `your cap ${eth(cap)} ETH` : undefined} />
           <NumField label="Reserve (% of start)" value={reservePct} onChange={setReservePct} step={5} min={1} max={100} />
-          <NumField label="Auction length (min)" value={durationMin} onChange={setDurationMin} step={1} min={1} />
+          <NumField label="Auction length (sec)" value={durationSec} onChange={setDurationSec} step={5} min={30} />
           <NumField label="Contingent (% on outcome)" value={contingentPct} onChange={setContingentPct} step={5} min={0} max={90} />
-          <NumField label="Embargo (min)" value={embargoMin} onChange={setEmbargoMin} step={1} min={2} />
+          <NumField label="Embargo (sec)" value={embargoSec} onChange={setEmbargoSec} step={5} min={30} />
         </div>
         {cap != null && startPriceEth > cap && (
           <div className="text-[12px] text-amber-300">Your reputation cap is {eth(cap)} ETH — the auction will open there, not at {eth(startPriceEth)}.</div>
         )}
-        <div className="text-[12px] text-faint">Opens at {eth(effectiveStart)} ETH, decays to {eth(effectiveStart * (reservePct / 100))} ETH over {durationMin} min. {contingentPct}% of the clearing price is escrowed until an advisory confirms the finding.</div>
+        <div className="text-[12px] text-faint">Opens at {eth(effectiveStart)} ETH, decays to {eth(effectiveStart * (reservePct / 100))} ETH over {durationSec} s. {contingentPct}% of the clearing price is escrowed until an advisory confirms the finding.</div>
       </Section>
 
       {error && <div className="rounded-md border border-red/40 bg-red/10 text-red-100 px-4 py-3 text-[13px]">{error}</div>}

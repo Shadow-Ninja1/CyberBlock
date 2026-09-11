@@ -180,4 +180,4 @@ cd contracts && npx hardhat verify --network baseSepolia <address> <oracle> <arb
 | `scripts/demo.ts` | end-to-end demo |
 | `fixtures/` | demo packages + findings + simulated advisory feed |
 
-Testnet only. Demo time windows are compressed to minutes; production would use hours for the challenge window, days for the embargo, weeks for confirmation, and a pinned container for detonation.
+Testnet only. Demo time windows are compressed to 30 seconds; production would use hours for the challenge window, days for the embargo, weeks for confirmation, and a pinned container for detonation.

@@ -49,7 +49,7 @@ export default function Verifier({ listings, busy, act, sandboxHash }: ViewProps
       </section>
 
       <p className="text-[12px] text-faint leading-relaxed max-w-[760px]">
-        Demo windows are compressed to minutes; production would use hours and days, and a real dynamic sandbox in a pinned container. Testnet only, no real funds. Packages are local fixtures, never published to the real npm registry. The honest next steps are several independent detonators whose stake is slashed when a re-run contradicts them, and running the sandbox inside a zkVM so the grade carries its own proof.
+        Demo windows are compressed to 30 seconds; production would use hours and days, and a real dynamic sandbox in a pinned container. Testnet only, no real funds. Packages are local fixtures, never published to the real npm registry. The honest next steps are several independent detonators whose stake is slashed when a re-run contradicts them, and running the sandbox inside a zkVM so the grade carries its own proof.
       </p>
     </div>
   );
