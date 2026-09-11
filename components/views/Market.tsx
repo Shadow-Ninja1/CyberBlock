@@ -228,7 +228,10 @@ function WalletActions({ l, now }: { l: ListingView; now: number }) {
   if (!w.address) {
     return (
       <div className="rounded-md border border-line bg-bg p-4 flex items-center justify-between gap-3 flex-wrap">
-        <span className="text-[12.5px] text-dim">Connect a wallet to buy or act on this listing yourself.</span>
+        <span className="text-[12.5px] text-dim">
+          Connect a wallet to buy or act on this listing yourself.
+          {w.error && <span className="block text-red-bright mt-1">{w.error}</span>}
+        </span>
         <Button size="sm" onClick={w.connect} busy={w.connecting}>Connect wallet</Button>
       </div>
     );

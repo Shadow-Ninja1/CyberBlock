@@ -65,25 +65,69 @@ function logsClient(): PublicClient {
 
 // ------------------------------------------------------------------ wallet
 
+/** The injected provider, if any. Wallets that only speak EIP-6963 (and some
+ *  that inject `window.ethereum` late) are picked up by `discoverProvider()`. */
+let _provider: EIP1193Provider | null = null;
 export function getProvider(): EIP1193Provider | null {
   if (typeof window === "undefined") return null;
-  return (window as unknown as { ethereum?: EIP1193Provider }).ethereum ?? null;
+  return _provider ?? (window as unknown as { ethereum?: EIP1193Provider }).ethereum ?? null;
 }
 export function hasWallet(): boolean {
   return !!getProvider();
 }
 
+/** Listen for wallets that announce themselves (EIP-6963) or inject after the
+ *  page has mounted. `onFound` fires once a provider is available. Returns a
+ *  cleanup. */
+export function discoverProvider(onFound: (p: EIP1193Provider) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const found = (p: EIP1193Provider) => {
+    if (!_provider) _provider = p;
+    onFound(getProvider()!);
+  };
+  const onAnnounce = (e: Event) => {
+    const detail = (e as CustomEvent<{ provider?: EIP1193Provider }>).detail;
+    if (detail?.provider) found(detail.provider);
+  };
+  const onInit = () => {
+    const p = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
+    if (p) found(p);
+  };
+  window.addEventListener("eip6963:announceProvider", onAnnounce);
+  window.addEventListener("ethereum#initialized", onInit);
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+  onInit();
+  return () => {
+    window.removeEventListener("eip6963:announceProvider", onAnnounce);
+    window.removeEventListener("ethereum#initialized", onInit);
+  };
+}
+
 function wallet() {
   const provider = getProvider();
-  if (!provider) throw new Error("No wallet found. Install a browser wallet (e.g. MetaMask, Rabbit, Coinbase Wallet).");
+  if (!provider) throw new Error("No wallet found. Install a browser wallet (e.g. MetaMask, Rabby, Coinbase Wallet).");
   return createWalletClient({ chain: CHAIN, transport: custom(provider) });
 }
 
+/** Turn wallet RPC errors into something a person can act on. */
+export function walletErrorMessage(e: unknown): string {
+  const err = e as { code?: number; message?: string; shortMessage?: string; cause?: { code?: number } };
+  const code = err?.code ?? err?.cause?.code;
+  if (code === 4001) return "Request rejected in your wallet.";
+  if (code === -32002) return "Your wallet already has a pending request — open it and finish that first.";
+  const msg = err?.shortMessage ?? err?.message ?? String(e);
+  return msg.split("\n")[0];
+}
+
+/** Ask the wallet for an account. Chain switching is deliberately NOT part of
+ *  connecting: a rejected/unsupported network switch must not leave the user
+ *  looking unconnected. The UI shows a "switch network" control instead. */
 export async function connect(): Promise<Address> {
-  const [account] = await wallet().requestAddresses();
-  if (!account) throw new Error("No account authorized.");
-  await ensureChain();
-  return getAddress(account);
+  const provider = getProvider();
+  if (!provider) throw new Error("No wallet found. Install a browser wallet (e.g. MetaMask, Rabby, Coinbase Wallet).");
+  const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
+  if (!accounts?.[0]) throw new Error("No account authorized.");
+  return getAddress(accounts[0]);
 }
 
 export async function currentChainId(): Promise<number | null> {

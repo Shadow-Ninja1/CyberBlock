@@ -67,6 +67,11 @@ export default function Trade({ listings, now, busy, act, step, go }: ViewProps)
             {!step.done && step.step === 2 && (
               <button onClick={() => go("verifier")} className="mono text-[12px] tracking-[0.04em] text-faint hover:text-txt transition-colors">Why can&apos;t it read the finding? →</button>
             )}
+            {step.restart && (
+              <button onClick={() => act(step.restart!.key, step.restart!.body)} disabled={busy != null} className="mono text-[12px] tracking-[0.04em] text-faint hover:text-txt transition-colors disabled:opacity-50">
+                {busy === step.restart.key ? "Pulling the listing…" : `${step.restart.label} ↺`}
+              </button>
+            )}
           </div>
         </div>
 

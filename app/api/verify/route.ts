@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { readListing, listingLogs } from "@/lib/chain";
 import { findingForTarget } from "@/lib/agents";
-import { runFileTarball } from "@/lib/sandbox";
+import { loadArtifact } from "@/lib/oracle";
+import { run } from "@/lib/sandbox";
 import { effectList, Status } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,9 @@ export async function POST(req: Request) {
     const finding = findingForTarget(target);
     if (!finding) return NextResponse.json({ ok: false, error: "artifact not found" }, { status: 404 });
 
-    const rerun = runFileTarball(finding.target.artifact, finding.repro);
+    const tarball = await loadArtifact(finding);
+    if (!tarball) return NextResponse.json({ ok: false, error: "artifact not found" }, { status: 404 });
+    const rerun = run(tarball, finding.repro);
     const matches = {
       artifactHash: rerun.artifactHash.toLowerCase() === l.att.artifactHash.toLowerCase(),
       sandboxHash: rerun.sandboxHash.toLowerCase() === l.att.sandboxHash.toLowerCase(),

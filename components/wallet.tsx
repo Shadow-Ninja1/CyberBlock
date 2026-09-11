@@ -2,8 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { Address } from "viem";
-import { balanceEth, connect as connectWallet, currentChainId, ensureChain, getProvider, hasWallet, CHAIN_ID } from "@/lib/browser";
-import { Button, short } from "./ui";
+import { balanceEth, connect as connectWallet, currentChainId, discoverProvider, ensureChain, getProvider, hasWallet, walletErrorMessage, CHAIN_ID } from "@/lib/browser";
+import { short } from "./ui";
 
 interface WalletState {
   address: Address | null;
@@ -45,48 +45,62 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, [address]);
 
+  const switchChain = useCallback(async () => {
+    setError(null);
+    try {
+      await ensureChain();
+    } catch (e) {
+      setError(walletErrorMessage(e));
+    }
+    setChainId(await currentChainId());
+  }, []);
+
   const connect = useCallback(async () => {
     setConnecting(true);
     setError(null);
     try {
       const a = await connectWallet();
       setAddress(a);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setConnecting(false);
-    }
-  }, []);
-
-  const switchChain = useCallback(async () => {
-    setError(null);
-    try {
-      await ensureChain();
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [refresh]);
-
-  // Discover an already-authorized account without prompting.
-  useEffect(() => {
-    setAvailable(hasWallet());
-    const provider = getProvider();
-    if (!provider) return;
-    (async () => {
-      try {
-        const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
-        if (accounts?.[0]) setAddress(accounts[0] as Address);
-      } catch {}
       setChainId(await currentChainId());
-    })();
+    } catch (e) {
+      setError(walletErrorMessage(e));
+      setConnecting(false);
+      return;
+    }
+    setConnecting(false);
+    // Best effort: nudge the wallet onto the right chain. If the user declines
+    // they stay connected and get the explicit "switch network" control.
+    await switchChain();
+  }, [switchChain]);
+
+  // Find the wallet (even one that injects late or only via EIP-6963) and
+  // discover an already-authorized account without prompting.
+  useEffect(() => {
+    let wired: any = null;
     const onAccounts = (a: unknown) => setAddress(((a as string[])?.[0] as Address) ?? null);
     const onChain = (id: unknown) => setChainId(parseInt(id as string, 16));
-    (provider as any).on?.("accountsChanged", onAccounts);
-    (provider as any).on?.("chainChanged", onChain);
+    const wire = (provider: any) => {
+      if (wired) return;
+      wired = provider;
+      setAvailable(true);
+      (async () => {
+        try {
+          const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
+          if (accounts?.[0]) setAddress(accounts[0] as Address);
+        } catch {}
+        setChainId(await currentChainId());
+      })();
+      provider.on?.("accountsChanged", onAccounts);
+      provider.on?.("chainChanged", onChain);
+    };
+    setAvailable(hasWallet());
+    const existing = getProvider();
+    if (existing) wire(existing);
+    const stop = discoverProvider(wire);
     return () => {
-      (provider as any).removeListener?.("accountsChanged", onAccounts);
-      (provider as any).removeListener?.("chainChanged", onChain);
+      stop();
+      wired?.removeListener?.("accountsChanged", onAccounts);
+      wired?.removeListener?.("chainChanged", onChain);
     };
   }, []);
 
@@ -119,8 +133,8 @@ export function WalletButton() {
   }
   if (!w.address) {
     return (
-      <button onClick={w.connect} disabled={w.connecting} className="inline-flex items-center gap-2 mono text-[10.5px] tracking-[0.08em] uppercase px-3 py-[6px] rounded border border-red/50 text-red-bright hover:bg-red/10 transition-colors disabled:opacity-50">
-        {w.connecting ? "connecting…" : "Connect wallet"}
+      <button onClick={w.connect} disabled={w.connecting} title={w.error ?? undefined} className="inline-flex items-center gap-2 mono text-[10.5px] tracking-[0.08em] uppercase px-3 py-[6px] rounded border border-red/50 text-red-bright hover:bg-red/10 transition-colors disabled:opacity-50">
+        {w.connecting ? "connecting…" : w.error ? "Retry connect" : "Connect wallet"}
       </button>
     );
   }
@@ -139,3 +153,4 @@ export function WalletButton() {
     </span>
   );
 }
+

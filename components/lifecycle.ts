@@ -46,6 +46,8 @@ export interface NextStep {
   accent: string;
   body: string;
   action?: { label: string; body: Record<string, unknown>; key: string; danger?: boolean };
+  /** Pulls the unsold listing so the walkthrough can begin again at step 1. */
+  restart?: { label: string; body: Record<string, unknown>; key: string };
   waitUntil?: number | null;
   waitLabel?: string;
   listingId?: number;
@@ -53,6 +55,11 @@ export interface NextStep {
 }
 
 const NEXT_FIXTURE = ["evil-widget-1.2.0.json", "sneaky-utils-0.4.1.json"];
+const RECENT_SECONDS = 15 * 60;
+
+function lastTouched(l: ListingView): number {
+  return Math.max(l.auctionStartedAt, l.soldAt, l.deliveredAt, l.disclosedAt);
+}
 
 /** Works out the single most useful thing to do next. */
 export function nextStep(listings: ListingView[], now: number): NextStep {
@@ -66,20 +73,23 @@ export function nextStep(listings: ListingView[], now: number): NextStep {
 
   if (!active) {
     // Count only the demo listings the walkthrough itself created, so a wallet or
-    // CLI listing on the market never makes the flow think a cycle has run.
-    const managedCount = listings.filter((l) => l.serverManaged).length;
-    const fixture = NEXT_FIXTURE[Math.min(managedCount, NEXT_FIXTURE.length - 1)];
-    const first = managedCount === 0;
+    // CLI listing on the market never makes the flow think a cycle has run. The
+    // contract is long-lived, so earlier sessions' runs are still on it: a fresh
+    // visit starts at step 1, and "complete" is shown only for a run that just ended.
+    const managed = listings.filter((l) => l.serverManaged);
+    const fixture = NEXT_FIXTURE[managed.length % NEXT_FIXTURE.length];
+    const latest = managed.reduce<ListingView | null>((a, l) => (a && a.id > l.id ? a : l), null);
+    const justFinished = latest != null && (latest.status === 6 || latest.status === 7) && now - lastTouched(latest) < RECENT_SECONDS;
     return {
-      step: first ? 1 : 6,
+      step: justFinished ? 6 : 1,
       actor: "seller",
-      title: first ? "A researcher seals" : "Cycle complete.",
-      accent: first ? "a real malicious package." : "Run another.",
-      body: first
-        ? "The researcher found malware and wrote a repro. Before it can be listed, the oracle detonates that repro in an instrumented sandbox, records exactly what the package did, and signs the observed effects. No signature, no listing."
-        : "A finding has gone through the whole loop and is public. Open the Verifier to re-detonate the repro yourself, or list the next finding to see the challenge path.",
-      action: { label: first ? "Detonate and list the finding" : "List the next finding", key: `list-${fixture}`, body: { action: "list", findingFile: fixture } },
-      done: !first,
+      title: justFinished ? "Cycle complete." : "A researcher seals",
+      accent: justFinished ? "Run another." : "a real malicious package.",
+      body: justFinished
+        ? "A finding has gone through the whole loop and is public. Open the Verifier to re-detonate the repro yourself, or list the next finding to see the challenge path."
+        : "The researcher found malware and wrote a repro. Before it can be listed, the oracle detonates that repro in an instrumented sandbox, records exactly what the package did, and signs the observed effects. No signature, no listing.",
+      action: { label: justFinished ? "List the next finding" : "Detonate and list the finding", key: `list-${fixture}`, body: { action: "list", findingFile: fixture } },
+      done: justFinished,
     };
   }
 
@@ -94,6 +104,7 @@ export function nextStep(listings: ListingView[], now: number): NextStep {
         accent: "without looking.",
         body: `Its agent sees only what the sandbox observed — ${active.effectLabels.join(", ") || "the effects"} — plus the one-sentence outcome, the install base and the seller's record. If that clears its policy it buys at the current falling price of ${eth(active.currentPriceEth)} ETH. It never opens the finding.`,
         action: { label: "Let the vendor evaluate and buy", key: `buy-${id}`, body: { action: "buy", id } },
+        restart: { label: "Pull this listing and start over", key: `cancel-${id}`, body: { action: "cancel", id } },
       };
     case 2: {
       const timedOut = active.deliveryDeadline !== null && now >= active.deliveryDeadline;

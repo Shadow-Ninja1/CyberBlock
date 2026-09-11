@@ -12,7 +12,7 @@ import Verifier from "./views/Verifier";
 import Submit from "./views/Submit";
 import Ledger from "./views/Ledger";
 import type { Act, View } from "./views/types";
-import { WalletProvider, WalletButton } from "./wallet";
+import { WalletProvider, WalletButton, useWallet } from "./wallet";
 
 const VIEWS: { id: View; label: string; icon: () => React.ReactElement }[] = [
   { id: "overview", label: "Overview", icon: Icon.Grid },
@@ -34,6 +34,7 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
   const [error, setError] = useState<string | null>(initialError);
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [current, setCurrent] = useState<View>("overview");
   const [selected, setSelected] = useState<number | null>(null);
   const sinceRef = useRef(0);
@@ -80,12 +81,16 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
     async (key, body) => {
       setBusy(key);
       setRefusal(null);
+      setNotice(null);
       try {
         const res = await fetch("/api/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const data = await res.json();
-        const refused = (data.logs ?? []).find((l: LogLine) => l.message?.startsWith("REFUSED"));
+        const logs: LogLine[] = data.logs ?? [];
+        const refused = logs.find((l) => l.message?.startsWith("REFUSED"));
+        const passed = logs.find((l) => l.actor === "buyer" && l.level === "warn" && /^(skipping:|Claude policy:)/.test(l.message ?? ""));
         if (refused) setRefusal(refused.message);
         else if (!data.ok) setError(data.error);
+        else if (passed) setNotice(passed.message.replace(/^(skipping:|Claude policy:)\s*/, ""));
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -156,19 +161,25 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
           </div>
         </header>
 
-        {(error || !deployed || refusal) && (
-          <div className="sticky top-14 z-20 px-6 lg:px-10 pt-4 flex flex-col gap-2">
-            {!deployed && <Banner tone="bad">No contract address configured. Deploy the contract and restart the app.</Banner>}
-            {error && <Banner tone="bad">{error}</Banner>}
-            {refusal && (
-              <Banner tone="warn" onClose={() => setRefusal(null)}>
-                <strong className="text-amber-200">The verifier refused to sign. </strong>
-                {refusal.replace(/^REFUSED \([a-z-]+\): /, "")}
-                <span className="text-faint"> No signature means no listing.</span>
-              </Banner>
-            )}
-          </div>
-        )}
+        <div className="sticky top-14 z-20 px-6 lg:px-10 flex flex-col gap-2 empty:hidden [&:not(:empty)]:pt-4">
+          {!deployed && <Banner tone="bad">No contract address configured. Deploy the contract and restart the app.</Banner>}
+          {error && <Banner tone="bad">{error}</Banner>}
+          <WalletNotice />
+          {notice && (
+            <Banner tone="warn" onClose={() => setNotice(null)}>
+              <strong className="text-amber-200">The vendor&apos;s agent passed for now: </strong>
+              {notice}
+              <span className="text-faint"> The auction price is still falling — try again in a moment.</span>
+            </Banner>
+          )}
+          {refusal && (
+            <Banner tone="warn" onClose={() => setRefusal(null)}>
+              <strong className="text-amber-200">The verifier refused to sign. </strong>
+              {refusal.replace(/^REFUSED \([a-z-]+\): /, "")}
+              <span className="text-faint"> No signature means no listing.</span>
+            </Banner>
+          )}
+        </div>
 
         <main key={current} className="rise overflow-x-hidden">
           {current === "overview" && <Overview {...props} />}
@@ -183,6 +194,13 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
     </div>
     </WalletProvider>
   );
+}
+
+/** The last wallet error (rejected request, pending popup, unsupported network…). */
+function WalletNotice() {
+  const w = useWallet();
+  if (!w.error) return null;
+  return <Banner tone="bad">Wallet: {w.error}</Banner>;
 }
 
 function Banner({ children, tone, onClose }: { children: React.ReactNode; tone: "bad" | "warn"; onClose?: () => void }) {

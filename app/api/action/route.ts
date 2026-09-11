@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   sellerList, buyById, deliverById, discloseById, resolveById,
-  buyerChallenge, claimPayment, buyerClaimTimeout, oracleConfirm, expireContingent, requestAttestation,
+  buyerChallenge, claimPayment, buyerClaimTimeout, oracleConfirm, expireContingent, requestAttestation, sellerCancel,
 } from "@/lib/agents";
 import { tail, record } from "@/lib/store";
 
@@ -60,6 +60,10 @@ export async function POST(req: Request) {
       case "expire":
         if (id === undefined) throw new Error("id required");
         await expireContingent(id);
+        break;
+      case "cancel":
+        if (id === undefined) throw new Error("id required");
+        await sellerCancel(id);
         break;
       default:
         return NextResponse.json({ ok: false, error: `unknown action: ${action}` }, { status: 400 });

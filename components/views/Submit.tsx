@@ -193,7 +193,10 @@ export default function Submit({ go }: ViewProps) {
 
       {!w.address && (
         <Card className="p-6 flex items-center justify-between gap-4 flex-wrap">
-          <div className="text-[14px] text-dim">Connect a wallet on Base Sepolia to submit a finding.</div>
+          <div className="text-[14px] text-dim">
+            Connect a wallet on Base Sepolia to submit a finding.
+            {w.error && <div className="text-[12.5px] text-red-bright mt-1">{w.error}</div>}
+          </div>
           <Button onClick={w.connect} busy={w.connecting}>Connect wallet</Button>
         </Card>
       )}

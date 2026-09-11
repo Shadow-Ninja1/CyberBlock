@@ -9,8 +9,10 @@
  *           confirmation that releases the contingent share.
  * arbiter — a separate party that rules on challenges by re-detonating harder.
  */
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import { type Hex } from "viem";
 import {
   CONTRACT_ABI,
@@ -29,8 +31,8 @@ import {
   txUrl,
 } from "./chain";
 import { sealFinding, wrapKey, unwrapKey, openFinding, publicKeyOf, deriveKey } from "./crypto";
-import { attest, adjudicate } from "./oracle";
-import { run } from "./sandbox";
+import { attest, adjudicate, loadArtifact } from "./oracle";
+import { readTarball, run } from "./sandbox";
 import { record } from "./store";
 import { Status, effectList, type Finding, type LogLine, type SignedAttestation } from "./types";
 
@@ -66,8 +68,85 @@ function targetIndex(): Map<string, Finding> {
   }
   return (_targetIndex = m);
 }
+
+// The contract's duplicate lock rejects an artifact hash that is already on the
+// market, and a demo fixture is a fixed tarball. So each walkthrough run lists a
+// variant of the fixture: the package is re-packed under `<name>-<tag>` and carried
+// inline, which makes it a fresh artifact. Everything is a pure function of the
+// tag, so the finding (and therefore the key) can be rebuilt from the on-chain
+// targetLabel alone on a later, stateless request.
+const RUN_TAG = /^(.+)-([0-9a-f]{6})$/;
+
+export function newRunTag(): string {
+  return randomBytes(3).toString("hex");
+}
+
+function tarHeader(name: string, size: number): Buffer {
+  const h = Buffer.alloc(512);
+  h.write(`package/${name}`.slice(0, 100), 0);
+  h.write("0000644\0", 100);
+  h.write("0000000\0", 108);
+  h.write("0000000\0", 116);
+  h.write(size.toString(8).padStart(11, "0") + "\0", 124);
+  h.write("00000000000\0", 136);
+  h.write("        ", 148);
+  h.write("0", 156);
+  h.write("ustar\0", 257);
+  h.write("00", 263);
+  let sum = 0;
+  for (const b of h) sum += b;
+  h.write(sum.toString(8).padStart(6, "0") + "\0 ", 148);
+  return h;
+}
+
+function packTarball(files: Record<string, string>): Buffer {
+  const blocks: Buffer[] = [];
+  for (const name of Object.keys(files).sort()) {
+    const body = Buffer.from(files[name], "utf8");
+    blocks.push(tarHeader(name, body.length));
+    const padded = Buffer.alloc(Math.ceil(body.length / 512) * 512);
+    body.copy(padded);
+    blocks.push(padded);
+  }
+  blocks.push(Buffer.alloc(1024));
+  return gzipSync(Buffer.concat(blocks));
+}
+
+const _variants = new Map<string, Finding>();
+export function findingVariant(base: Finding, tag: string): Finding {
+  const name = `${base.target.name}-${tag}`;
+  const cacheKey = `npm:${name}@${base.target.version}`;
+  const hit = _variants.get(cacheKey);
+  if (hit) return hit;
+
+  const files: Record<string, string> = {};
+  for (const e of readTarball(readFileSync(resolve(process.cwd(), base.target.artifact)))) files[e.path] = e.text;
+  if (files["package.json"]) {
+    const pkg = JSON.parse(files["package.json"]);
+    pkg.name = name;
+    files["package.json"] = JSON.stringify(pkg, null, 2) + "\n";
+  }
+  const artifact = `data:application/gzip;base64,${packTarball(files).toString("base64")}`;
+  const variant: Finding = { ...base, target: { ...base.target, name, artifact } };
+  _variants.set(cacheKey, variant);
+  return variant;
+}
+
+/** `npm:evil-widget-a1b2c3@1.2.0` → `npm:evil-widget@1.2.0`; untagged labels pass through. */
+export function baseTargetLabel(targetLabel: string): string {
+  const m = /^npm:(.+)@([^@]+)$/.exec(targetLabel);
+  const tagged = m && RUN_TAG.exec(m[1]);
+  return tagged ? `npm:${tagged[1]}@${m[2]}` : targetLabel;
+}
+
 export function findingForTarget(targetLabel: string): Finding | null {
-  return targetIndex().get(targetLabel) ?? null;
+  const exact = targetIndex().get(targetLabel);
+  if (exact) return exact;
+  const m = /^npm:(.+)@([^@]+)$/.exec(targetLabel);
+  const tagged = m && RUN_TAG.exec(m[1]);
+  if (!tagged) return null;
+  const base = targetIndex().get(`npm:${tagged[1]}@${m[2]}`);
+  return base ? findingVariant(base, tagged[2]) : null;
 }
 
 /** The simulated external advisory feed used to confirm the contingent share. */
@@ -108,8 +187,9 @@ async function waitForEvent(eventName: string, id: bigint, tries = 12): Promise<
 
 // -------------------------------------------------------- oracle: attestation
 
-export async function requestAttestation(findingFile: string) {
-  const finding = loadFinding(findingFile);
+export async function requestAttestation(findingFile: string, runTag?: string) {
+  const base = loadFinding(findingFile);
+  const finding = runTag ? findingVariant(base, runTag) : base;
   record({ actor: "seller", level: "info", message: `sealing "${finding.outcome}" and asking the oracle to detonate the repro` });
 
   const sealed = sealFinding(finding, keyForFinding(finding));
@@ -144,7 +224,7 @@ export interface ListOpts {
 }
 
 export async function sellerList(findingFile: string, opts: ListOpts = {}) {
-  const att = await requestAttestation(findingFile);
+  const att = await requestAttestation(findingFile, newRunTag());
   if (!att.ok) return { listed: false as const, refusal: att.refusal };
 
   const wallet = walletFor("SELLER");
@@ -294,6 +374,14 @@ export async function buyerBuy(id: bigint, priceCeilingEth = DEFAULT_POLICY.budg
 
 // --------------------------------------------------------------- seller: deliver
 
+export async function sellerCancel(id: bigint) {
+  const { hash } = await send("seller", `cancel #${id}: pull the unsold listing and reclaim the stake`, () => {
+    const wallet = walletFor("SELLER");
+    return wallet.writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "cancel", args: [id], account: wallet.account!, chain: wallet.chain });
+  });
+  return { hash };
+}
+
 export async function sellerDeliver(id: bigint, key: Hex) {
   const bought = await waitForEvent("Bought", id);
   const buyerPublicKey = bought.args.buyerPubKey as Hex;
@@ -324,7 +412,8 @@ export async function buyerChallenge(id: bigint, reason: string) {
   const l = await readListing(id);
   const target = (await listingLogs(id)).listed.args.targetLabel as string;
   const finding = findingForTarget(target);
-  const myRun = finding ? run(readFileSync(resolve(process.cwd(), finding.target.artifact)), finding.repro) : null;
+  const tarball = finding ? await loadArtifact(finding) : null;
+  const myRun = finding && tarball ? run(tarball, finding.repro) : null;
   const claimedTraceHash = (myRun?.traceHash ?? "0x0000000000000000000000000000000000000000000000000000000000000000") as Hex;
   const bond = await challengeBondFor(l.price);
   const { hash } = await send("buyer", `challenge #${id}: ${reason}`, () => {
@@ -398,7 +487,7 @@ export async function oracleConfirm(id: bigint) {
     await new Promise((r) => setTimeout(r, 1500));
   }
   const target = (await listingLogs(id)).listed.args.targetLabel as string;
-  const advisory = groundTruth()[target];
+  const advisory = groundTruth()[baseTargetLabel(target)];
   if (!advisory) {
     record({ actor: "oracle", level: "warn", message: `#${id}: no external advisory found for ${target} yet. The contingent stays escrowed; if none arrives, the buyer reclaims most of it.` });
     return { confirmed: false as const };
