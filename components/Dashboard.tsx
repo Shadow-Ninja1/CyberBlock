@@ -28,6 +28,16 @@ function viewFromHash(): View {
   return VIEWS.some((v) => v.id === h) ? h : "overview";
 }
 
+// The contract is shared and long-lived: other visitors' runs stay on it. Each
+// browser follows only its own walkthrough listing, so a new visitor (nothing in
+// localStorage yet) always starts the guided demo at step 1.
+const MY_LISTING_KEY = "cyberblock:my-listing-id";
+function readMyListingId(): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(MY_LISTING_KEY);
+  return raw ? Number(raw) : null;
+}
+
 export default function Dashboard({ initial, initialError }: { initial: MarketView | null; initialError: string | null }) {
   const [view, setView] = useState<MarketView | null>(initial);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -37,6 +47,7 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
   const [notice, setNotice] = useState<string | null>(null);
   const [current, setCurrent] = useState<View>("overview");
   const [selected, setSelected] = useState<number | null>(null);
+  const [myListingId, setMyListingId] = useState<number | null>(null);
   const sinceRef = useRef(0);
   const serverNow = view?.now ?? Math.floor(Date.now() / 1000);
   const now = useTick(serverNow);
@@ -46,6 +57,10 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
     const onHash = () => setCurrent(viewFromHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  useEffect(() => {
+    setMyListingId(readMyListingId());
   }, []);
 
   const go = useCallback((v: View, listingId?: number) => {
@@ -91,6 +106,14 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
         if (refused) setRefusal(refused.message);
         else if (!data.ok) setError(data.error);
         else if (passed) setNotice(passed.message.replace(/^(skipping:|Claude policy:)\s*/, ""));
+        if (key.startsWith("list-")) {
+          const listed = logs.find((l) => l.actor === "seller" && l.level === "ok" && /^listing #\d+ live/.test(l.message ?? ""));
+          const id = listed ? Number(/^listing #(\d+) live/.exec(listed.message!)![1]) : null;
+          if (id != null) {
+            setMyListingId(id);
+            window.localStorage.setItem(MY_LISTING_KEY, String(id));
+          }
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -103,7 +126,7 @@ export default function Dashboard({ initial, initialError }: { initial: MarketVi
 
   const c = view?.contract;
   const listings = view?.listings ?? [];
-  const step = useMemo(() => nextStep(listings, now), [listings, now]);
+  const step = useMemo(() => nextStep(listings, now, myListingId), [listings, now, myListingId]);
   const deployed = !!c && c.address !== "0x0000000000000000000000000000000000000000";
   const props = { listings, now, busy, act, step, go, explorer: c?.explorer, sandboxHash: view?.sandbox.sandboxHash };
 

@@ -61,25 +61,29 @@ function lastTouched(l: ListingView): number {
   return Math.max(l.auctionStartedAt, l.soldAt, l.deliveredAt, l.disclosedAt);
 }
 
-/** Works out the single most useful thing to do next. */
-export function nextStep(listings: ListingView[], now: number): NextStep {
-  // The walkthrough drives the built-in demo agents on the server, so it can only
-  // advance a listing whose finding the oracle host holds. A listing created from a
-  // wallet or the CLI (serverManaged === false) is driven by its own author in the
-  // Market tab and must never capture the guided flow, or its buttons would 500.
-  const active = [...listings]
-    .reverse()
-    .find((l) => l.serverManaged && ((l.status >= 1 && l.status <= 5) || (l.status === 6 && l.contingentState === Contingent.Escrowed)));
+function isLive(l: ListingView): boolean {
+  return (l.status >= 1 && l.status <= 5) || (l.status === 6 && l.contingentState === Contingent.Escrowed);
+}
+
+/**
+ * Works out the single most useful thing to do next.
+ *
+ * The contract is shared and long-lived, so other visitors' runs are still on it.
+ * `myListingId` is this browser's own run (persisted client-side, `null` for a
+ * visitor who hasn't started one yet): the walkthrough only ever follows that
+ * listing, so a brand-new visitor always starts at step 1 regardless of what
+ * anyone else's session left in progress.
+ */
+export function nextStep(listings: ListingView[], now: number, myListingId: number | null = null): NextStep {
+  const active = myListingId != null ? listings.find((l) => l.id === myListingId && isLive(l)) : undefined;
 
   if (!active) {
     // Count only the demo listings the walkthrough itself created, so a wallet or
-    // CLI listing on the market never makes the flow think a cycle has run. The
-    // contract is long-lived, so earlier sessions' runs are still on it: a fresh
-    // visit starts at step 1, and "complete" is shown only for a run that just ended.
+    // CLI listing on the market never makes the flow think a cycle has run.
     const managed = listings.filter((l) => l.serverManaged);
     const fixture = NEXT_FIXTURE[managed.length % NEXT_FIXTURE.length];
-    const latest = managed.reduce<ListingView | null>((a, l) => (a && a.id > l.id ? a : l), null);
-    const justFinished = latest != null && (latest.status === 6 || latest.status === 7) && now - lastTouched(latest) < RECENT_SECONDS;
+    const mine = myListingId != null ? listings.find((l) => l.id === myListingId) : undefined;
+    const justFinished = mine != null && (mine.status === 6 || mine.status === 7) && now - lastTouched(mine) < RECENT_SECONDS;
     return {
       step: justFinished ? 6 : 1,
       actor: "seller",
