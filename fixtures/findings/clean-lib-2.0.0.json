@@ -1,24 +1,19 @@
 {
-  "schema": "bbb.finding.v1",
+  "schema": "cyberblock.finding.v2",
   "target": {
     "ecosystem": "npm",
     "name": "clean-lib",
     "version": "2.0.0",
     "artifact": "fixtures/packages/clean-lib-2.0.0.tgz"
   },
-  "title": "clean-lib@2.0.0 backdoor (claimed)",
-  "summary": "Seller claims a hidden backdoor. There isn't one; the detector finds nothing.",
-  "iocs": {
-    "domains": [
-      "evil.example"
-    ],
-    "files": [
-      "index.js"
-    ],
-    "snippets": [
-      "backdoor"
-    ]
+  "repro": {
+    "trigger": "require",
+    "entry": "index.js"
   },
+  "claimedEffects": 5,
+  "outcome": "Claims a hidden backdoor that beacons out on require.",
+  "expectedResult": "Claims requiring the package gives the attacker a credential-stealing backdoor. It does not.",
+  "writeup": "Seller claims a hidden backdoor. There isn't one; detonating the repro produces no observable effect.",
   "remediation": "n/a",
   "reporter": "chancer.eth"
 }

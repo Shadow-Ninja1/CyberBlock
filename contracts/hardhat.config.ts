@@ -24,7 +24,12 @@ const config: HardhatUserConfig = {
     baseSepolia: {
       url: process.env.BASE_SEPOLIA_RPC_URL ?? "https://sepolia.base.org",
       chainId: 84532,
-      accounts: [process.env.DEPLOYER_PRIVATE_KEY, process.env.SELLER_PRIVATE_KEY, process.env.BUYER_PRIVATE_KEY].filter(
+      accounts: [
+        process.env.DEPLOYER_PRIVATE_KEY,
+        process.env.SELLER_PRIVATE_KEY,
+        process.env.BUYER_PRIVATE_KEY,
+        process.env.ARBITER_PRIVATE_KEY,
+      ].filter(
         (k): k is string => typeof k === "string" && /^0x[0-9a-fA-F]{64}$/.test(k),
       ),
     },

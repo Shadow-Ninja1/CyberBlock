@@ -1,28 +1,32 @@
 /**
  * Server-side read model for the UI. Pulls every listing from chain, decodes the
- * event log for the sealed blob / wrapped key / disclosed key, and — only once a
- * listing is publicly disclosed — opens the plaintext so the page can show it.
+ * event log for the sealed blob / wrapped key / disclosed key / outcome, and — only
+ * once a listing is publicly disclosed — opens the plaintext so the page can show it.
  *
- * Before disclosure the plaintext is never reconstructed here; the page only ever
- * sees the attested grade, exactly like a real buyer.
+ * Before disclosure the plaintext is never reconstructed here; the page sees only
+ * the attested effects and the one-sentence outcome, exactly like a real buyer.
  */
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
 import {
   allListings,
   listingLogs,
   sellerRep,
-  fairPrice,
+  currentPrice,
   txUrl,
   addressUrl,
   CONTRACT_ADDRESS,
   ORACLE_ADDRESS,
+  ARBITER_ADDRESS,
   CHAIN_ID,
   EXPLORER,
   type OnChainListing,
 } from "./chain";
 import { openFinding } from "./crypto";
-import { detectorSource } from "./detector";
-import { Status, STATUS_LABEL, VULN_CLASS_LABEL, type Finding } from "./types";
+import { sandboxSource } from "./sandbox";
+import { Status, STATUS_LABEL, Contingent, effectList, type Finding } from "./types";
+
+const CHALLENGE_WINDOW = 60;
+const CONFIRMATION_WINDOW = 120;
 
 export interface ListingView {
   id: number;
@@ -30,53 +34,73 @@ export interface ListingView {
   statusLabel: string;
   seller: string;
   buyer: string;
+  challenger: string;
   targetLabel: string;
-  severity: number;
-  vulnClass: number;
-  vulnClassLabel: string;
+  outcome: string;
+  effects: number;
+  effectLabels: string[];
   novel: boolean;
   installBase: number;
-  priceWei: string;
-  priceEth: number;
-  fairPriceEth: number;
+  // pricing
+  startPriceEth: number;
+  reservePriceEth: number;
+  currentPriceEth: number;
+  clearingPriceEth: number; // set once sold
+  contingentBps: number;
+  basePriceEth: number;
+  contingentPriceEth: number;
+  contingentState: number;
+  contingentStateLabel: string;
+  auctionStartedAt: number;
+  auctionEndsAt: number;
   stakeEth: number;
   embargoMinutes: number;
+  // commitments
   artifactHash: Hex;
   contentHash: Hex;
-  detectorHash: Hex;
+  traceHash: Hex;
+  sandboxHash: Hex;
+  // timeline
   soldAt: number;
   deliveredAt: number;
+  disclosedAt: number;
   challengeEndsAt: number | null;
   embargoEndsAt: number | null;
-  sellerRep: { sold: number; slashed: number };
+  confirmationEndsAt: number | null;
+  sellerRep: { sold: number; slashed: number; confirmed: number; unconfirmed: number };
   listedTx: string | null;
   disclosedTx: string | null;
-  /** Present only after public disclosure. */
   revealed: (Finding & { key: Hex }) | null;
 }
 
 export interface MarketView {
-  contract: { address: string; explorer: string; chainId: number; oracle: string; addressUrl: string };
+  contract: { address: string; explorer: string; chainId: number; oracle: string; arbiter: string; addressUrl: string };
   listings: ListingView[];
-  detector: { detectorHash: Hex; bytes: number };
+  sandbox: { sandboxHash: Hex; bytes: number };
   now: number;
 }
 
-async function toView(l: OnChainListing): Promise<ListingView> {
-  const logs = await listingLogs(l.id);
-  const rep = await sellerRep(l.seller);
-  const fair = await fairPrice(l.att, l.embargo);
+const CONTINGENT_LABEL: Record<number, string> = { 0: "None", 1: "Escrowed", 2: "Released", 3: "Returned" };
+
+async function toView(l: OnChainListing, repOf: (seller: Address) => Promise<ListingView["sellerRep"]>): Promise<ListingView> {
+  const [logs, rep, priceNow] = await Promise.all([
+    listingLogs(l.id, l.status),
+    repOf(l.seller),
+    l.status === Status.Listed ? currentPrice(l.id) : Promise.resolve(l.price),
+  ]);
 
   const targetLabel = (logs.listed?.args?.targetLabel as string) ?? "unknown";
+  const outcome = (logs.listed?.args?.outcome as string) ?? "";
   const soldAt = Number(l.soldAt);
   const deliveredAt = Number(l.deliveredAt);
+  const disclosedAt = Number(l.disclosedAt);
+  const auctionStartedAt = Number(l.auction.startedAt);
 
   let revealed: (Finding & { key: Hex }) | null = null;
   if (l.status === Status.Disclosed && logs.disclosed && logs.listed) {
     try {
       const key = logs.disclosed.args.key as Hex;
-      const ciphertext = logs.listed.args.ciphertext as Hex;
-      const finding = openFinding(ciphertext, key, l.att.contentHash);
+      const finding = openFinding(logs.listed.args.ciphertext as Hex, key, l.att.contentHash);
       revealed = { ...finding, key };
     } catch {
       revealed = null;
@@ -89,24 +113,36 @@ async function toView(l: OnChainListing): Promise<ListingView> {
     statusLabel: STATUS_LABEL[l.status],
     seller: l.seller,
     buyer: l.buyer,
+    challenger: l.challenger,
     targetLabel,
-    severity: l.att.severity,
-    vulnClass: l.att.vulnClass,
-    vulnClassLabel: VULN_CLASS_LABEL[l.att.vulnClass] ?? "Unclassified",
+    outcome,
+    effects: l.att.effects,
+    effectLabels: effectList(l.att.effects).map((e) => e.label),
     novel: l.att.novel,
     installBase: l.att.installBase,
-    priceWei: l.price.toString(),
-    priceEth: Number(l.price) / 1e18,
-    fairPriceEth: Number(fair) / 1e18,
+    startPriceEth: Number(l.auction.startPrice) / 1e18,
+    reservePriceEth: Number(l.auction.reservePrice) / 1e18,
+    currentPriceEth: Number(priceNow) / 1e18,
+    clearingPriceEth: Number(l.price) / 1e18,
+    contingentBps: l.auction.contingentBps,
+    basePriceEth: Number(l.basePart) / 1e18,
+    contingentPriceEth: Number(l.contingentPart) / 1e18,
+    contingentState: l.contingent,
+    contingentStateLabel: CONTINGENT_LABEL[l.contingent] ?? "None",
+    auctionStartedAt,
+    auctionEndsAt: auctionStartedAt + Number(l.auction.duration),
     stakeEth: Number(l.stake) / 1e18,
     embargoMinutes: Number(l.embargo) / 60,
     artifactHash: l.att.artifactHash,
     contentHash: l.att.contentHash,
-    detectorHash: l.att.detectorHash,
+    traceHash: l.att.traceHash,
+    sandboxHash: l.att.sandboxHash,
     soldAt,
     deliveredAt,
-    challengeEndsAt: deliveredAt ? deliveredAt + 60 : null,
+    disclosedAt,
+    challengeEndsAt: deliveredAt ? deliveredAt + CHALLENGE_WINDOW : null,
     embargoEndsAt: deliveredAt ? deliveredAt + Number(l.embargo) : null,
+    confirmationEndsAt: disclosedAt ? disclosedAt + CONFIRMATION_WINDOW : null,
     sellerRep: rep,
     listedTx: logs.listed ? txUrl(logs.listed.transactionHash as Hex) : null,
     disclosedTx: logs.disclosed ? txUrl(logs.disclosed.transactionHash as Hex) : null,
@@ -116,19 +152,29 @@ async function toView(l: OnChainListing): Promise<ListingView> {
 
 export async function marketView(): Promise<MarketView> {
   const listings = await allListings();
-  const views = await Promise.all(listings.map(toView));
+  // One sellerRep read per distinct seller per refresh, not per listing.
+  const reps = new Map<Address, Promise<ListingView["sellerRep"]>>();
+  const repOf = (seller: Address) => {
+    let p = reps.get(seller);
+    if (!p) reps.set(seller, (p = sellerRep(seller)));
+    return p;
+  };
+  const views = await Promise.all(listings.map((l) => toView(l, repOf)));
   views.sort((a, b) => b.id - a.id);
-  const det = detectorSource();
+  const sb = sandboxSource();
   return {
     contract: {
       address: CONTRACT_ADDRESS,
       explorer: EXPLORER,
       chainId: CHAIN_ID,
       oracle: ORACLE_ADDRESS,
+      arbiter: ARBITER_ADDRESS,
       addressUrl: addressUrl(CONTRACT_ADDRESS),
     },
     listings: views,
-    detector: { detectorHash: det.detectorHash, bytes: det.bytes },
+    sandbox: { sandboxHash: sb.sandboxHash, bytes: sb.bytes },
     now: Math.floor(Date.now() / 1000),
   };
 }
+
+export { Contingent };

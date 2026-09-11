@@ -20,6 +20,7 @@ const log: LogLine[] = globalThis.__bbbLog ?? (globalThis.__bbbLog = []);
 const ICON: Record<LogLine["level"], string> = { info: "·", ok: "✓", warn: "!", error: "✗" };
 const ACTOR_COLOR: Record<LogLine["actor"], string> = {
   oracle: "\x1b[35m",
+  arbiter: "\x1b[34m",
   seller: "\x1b[33m",
   buyer: "\x1b[36m",
   chain: "\x1b[90m",

@@ -10,10 +10,8 @@
     "contracts:test": "npm --prefix contracts run test",
     "deploy": "npm --prefix contracts run deploy",
     "fixtures": "tsx scripts/build-fixtures.ts",
-    "detect": "tsx scripts/detect.ts",
     "demo": "tsx scripts/demo.ts",
-    "seller": "tsx scripts/seller.ts",
-    "buyer": "tsx scripts/buyer.ts"
+    "cli": "tsx scripts/cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

@@ -1,25 +1,19 @@
 {
-  "schema": "bbb.finding.v1",
+  "schema": "cyberblock.finding.v2",
   "target": {
     "ecosystem": "npm",
     "name": "overhyped-logger",
     "version": "1.0.3",
     "artifact": "fixtures/packages/overhyped-logger-1.0.3.tgz"
   },
-  "title": "overhyped-logger@1.0.3 steals SSH keys and drops a reverse shell (claimed)",
-  "summary": "Seller claims credential theft of ~/.ssh/id_rsa and a child_process reverse shell to attacker.example. The artifact does neither; it only makes one analytics call. The writeup is inflated to justify a higher price.",
-  "iocs": {
-    "domains": [
-      "attacker.example"
-    ],
-    "files": [
-      "scripts/reverse-shell.js"
-    ],
-    "snippets": [
-      "id_rsa",
-      "child_process"
-    ]
+  "repro": {
+    "trigger": "require",
+    "entry": "log.js"
   },
+  "claimedEffects": 21,
+  "outcome": "Claims it steals SSH keys and drops a reverse shell on require.",
+  "expectedResult": "Claims requiring the package steals ~/.ssh/id_rsa and gives the attacker an interactive reverse shell. The trace shows only an analytics beacon.",
+  "writeup": "Seller claims credential theft of ~/.ssh/id_rsa and a child_process reverse shell. The artifact does neither; the trace shows only a single analytics beacon. The claims are inflated to justify a higher price.",
   "remediation": "n/a",
   "reporter": "chancer.eth"
 }

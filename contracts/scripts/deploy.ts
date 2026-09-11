@@ -12,6 +12,10 @@ async function main() {
   if (!oracle || !isAddress(oracle)) {
     throw new Error("ORACLE_ADDRESS must be set to the oracle's address in .env");
   }
+  const arbiter = process.env.ARBITER_ADDRESS;
+  if (!arbiter || !isAddress(arbiter)) {
+    throw new Error("ARBITER_ADDRESS must be set to the arbiter's address in .env");
+  }
 
   const [deployer] = await hre.viem.getWalletClients();
   const publicClient = await hre.viem.getPublicClient();
@@ -21,12 +25,13 @@ async function main() {
   console.log(`network   chainId=${chainId}`);
   console.log(`deployer  ${deployer.account.address}  (${Number(balance) / 1e18} ETH)`);
   console.log(`oracle    ${getAddress(oracle)}`);
+  console.log(`arbiter   ${getAddress(arbiter)}`);
 
   if (balance === 0n) {
     throw new Error("Deployer has no balance. Fund it from a Base Sepolia faucet first.");
   }
 
-  const bazaar = await hre.viem.deployContract("CyberBlock", [getAddress(oracle)]);
+  const bazaar = await hre.viem.deployContract("CyberBlock", [getAddress(oracle), getAddress(arbiter)]);
   console.log(`\ndeployed  ${bazaar.address}`);
 
   const blockNumber = await publicClient.getBlockNumber();
@@ -35,12 +40,12 @@ async function main() {
     console.log(`explorer  https://sepolia.basescan.org/address/${bazaar.address}`);
   }
 
-  // On a testnet, top up the seller and buyer from the deployer so the demo only
-  // needs ONE funded address. Configured accounts are [deployer, seller, buyer].
+  // On a testnet, top up the seller, buyer and arbiter from the deployer so the demo
+  // only needs ONE funded address. Configured accounts are [deployer, seller, buyer, arbiter].
   if (chainId !== 31337) {
     const wallets = await hre.viem.getWalletClients();
     const topUp = 3_000_000_000_000_000n; // 0.003 ETH each — plenty for the demo
-    for (const w of wallets.slice(1, 3)) {
+    for (const w of wallets.slice(1, 4)) {
       const bal = await publicClient.getBalance({ address: w.account.address });
       if (bal >= topUp) {
         console.log(`fund      ${w.account.address} already has ${Number(bal) / 1e18} ETH`);
@@ -66,6 +71,7 @@ async function main() {
         address: bazaar.address,
         chainId,
         oracle: getAddress(oracle),
+        arbiter: getAddress(arbiter),
         deployedAtBlock: Number(blockNumber),
         abi: artifact.abi,
       },

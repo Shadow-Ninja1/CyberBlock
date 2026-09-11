@@ -1,50 +1,58 @@
 /**
  * The oracle.
  *
- * It does exactly three things, all of them checkable:
- *   1. re-runs the committed detector against the real artifact bytes,
- *   2. confirms the seller's claimed indicators actually appear in what the
- *      detector found, so the plaintext matches the grade,
- *   3. asks OSV whether the world already knows.
+ * A seller submits a finding that includes a `repro` — how to reproduce the
+ * behaviour — and the effects they claim it produces. The oracle:
  *
- * If all three pass it signs an EIP-712 voucher. Nothing can be listed without one,
- * so grading happens before a price exists, not after a buyer has been burned.
+ *   0. confirms the seal decrypts under K to the committed finding,
+ *   1. DETONATES the repro in the instrumented sandbox and reads the trace,
+ *   2. confirms every claimed effect actually appears in that trace (mechanical),
+ *   3. optionally asks Claude to corroborate that the trace substantiates the
+ *      public outcome sentence (a narrow yes/no; it never sets the on-chain grade),
+ *   4. checks OSV for prior disclosure.
  *
- * It is deliberately not an LLM. Every grade has to be reproducible by a stranger
- * running `analyze()` over the attested artifact hash.
+ * If all pass it signs an EIP-712 attestation over the trace hash, the sandbox
+ * hash, the observed effects, and the outcome hash. Nothing can be listed without
+ * it. There is no severity score: buyers price the finding from the observed
+ * effects and the one-sentence outcome themselves.
+ *
+ * The grade that gates money (the effects bitmask + trace hash) is produced
+ * mechanically by re-runnable code, so a stranger can reproduce it after disclosure.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { keccak256, toHex, type Hex } from "viem";
-import { analyze, sha256Hex } from "./detector";
+import { run, sha256Hex } from "./sandbox";
 import { canonicalize, openFinding, keyHashOf } from "./crypto";
 import { checkNovelty, weeklyDownloads } from "./osv";
 import { signAttestation } from "./chain";
-import type {
-  AttestationRefusal,
-  Finding,
-  SignedAttestation,
-  DetectorResult,
-  NoveltyResult,
-} from "./types";
+import { effectList, type AttestationRefusal, type Finding, type SignedAttestation, type SandboxResult, type NoveltyResult } from "./types";
 
 const VOUCHER_TTL_SECONDS = 30 * 60;
 
 export interface AttestRequest {
   finding: Finding;
-  /** The sealed blob the seller intends to publish on-chain. */
   ciphertext: Hex;
-  /** The symmetric key, so the oracle can verify the seal before signing it. */
   key: Hex;
 }
 
 export type AttestOutcome =
-  | (SignedAttestation & { ok: true; detector: DetectorResult; novelty: NoveltyResult })
+  | (SignedAttestation & { ok: true; sandbox: SandboxResult; novelty: NoveltyResult })
   | AttestationRefusal;
 
-/** Loads the artifact the finding points at. Local fixtures or an https tarball. */
-async function loadArtifact(finding: Finding): Promise<Buffer | null> {
+/** Largest artifact a seller may embed inline in the sealed finding (base64 data URL). */
+export const MAX_INLINE_ARTIFACT_BYTES = 256 * 1024;
+
+export async function loadArtifact(finding: Finding): Promise<Buffer | null> {
   const ref = finding.target.artifact;
+  // A wallet seller may bring their own package as an inline data URL: the bytes
+  // then travel inside the sealed finding, so the arbiter and any re-verifier get
+  // exactly the tarball that was graded.
+  const inline = /^data:[^;,]*;base64,(.*)$/s.exec(ref);
+  if (inline) {
+    const buf = Buffer.from(inline[1], "base64");
+    return buf.length > 0 && buf.length <= MAX_INLINE_ARTIFACT_BYTES ? buf : null;
+  }
   if (/^https?:\/\//.test(ref)) {
     const res = await fetch(ref, { signal: AbortSignal.timeout(20_000) });
     if (!res.ok) return null;
@@ -55,25 +63,9 @@ async function loadArtifact(finding: Finding): Promise<Buffer | null> {
   return existsSync(path) ? readFileSync(path) : null;
 }
 
-/**
- * Are the seller's claimed indicators actually in the artifact? This is what stops
- * a seller from wrapping a real detector hit in a fabricated writeup, and what
- * makes the "not reproducible" refusal a real check rather than a rigged one.
- */
-function claimsSupported(finding: Finding, detector: DetectorResult) {
-  const haystack = detector.signals
-    .map((s) => `${s.rule} ${s.file} ${s.evidence}`)
-    .join("\n")
-    .toLowerCase();
-
-  const claimed = [
-    ...finding.iocs.domains.map((d) => ({ kind: "domain", value: d })),
-    ...finding.iocs.files.map((f) => ({ kind: "file", value: f })),
-    ...finding.iocs.snippets.map((s) => ({ kind: "snippet", value: s })),
-  ];
-
-  const unsupported = claimed.filter((c) => !haystack.includes(c.value.toLowerCase()));
-  return { claimed, unsupported };
+/** The effects the seller claims that the sandbox did NOT observe. Empty = supported. */
+function unsupportedEffects(finding: Finding, sandbox: SandboxResult): { flag: number; label: string }[] {
+  return effectList(finding.claimedEffects).filter((e) => (sandbox.effects & e.flag) === 0);
 }
 
 export async function attest(req: AttestRequest): Promise<AttestOutcome> {
@@ -94,49 +86,52 @@ export async function attest(req: AttestRequest): Promise<AttestOutcome> {
     };
   }
 
-  // 1. Re-run the detector against the real bytes.
+  // 1. Detonate the repro in the sandbox.
   const tarball = await loadArtifact(finding);
   if (!tarball) {
-    return {
-      ok: false,
-      reason: "artifact-unavailable",
-      detail: `Could not fetch the artifact at ${finding.target.artifact}.`,
-      facts: { artifact: finding.target.artifact },
-    };
+    return { ok: false, reason: "artifact-unavailable", detail: `Could not fetch the artifact at ${finding.target.artifact}.`, facts: { artifact: finding.target.artifact } };
   }
+  const sandbox = run(tarball, finding.repro);
 
-  const detector = analyze(tarball);
-
-  if (detector.severity === 0) {
+  if (sandbox.effects === 0) {
     return {
       ok: false,
       reason: "not-reproducible",
-      detail: "The detector found nothing in this artifact. There is no finding to sell.",
-      facts: {
-        artifactHash: detector.artifactHash,
-        detectorHash: detector.detectorHash,
-        signals: 0,
-      },
+      detail: "Detonating the repro produced no observable effect. There is no finding to sell.",
+      facts: { artifactHash: sandbox.artifactHash, sandboxHash: sandbox.sandboxHash, trace: sandbox.trace, error: sandbox.error },
     };
   }
 
-  // 2. Do the seller's claims match what the detector actually saw?
-  const { claimed, unsupported } = claimsSupported(finding, detector);
+  // 2. Does every claimed effect actually appear in the trace? (mechanical gate)
+  const unsupported = unsupportedEffects(finding, sandbox);
   if (unsupported.length > 0) {
     return {
       ok: false,
       reason: "claims-unsupported",
-      detail: `${unsupported.length} of ${claimed.length} claimed indicators do not appear in the artifact.`,
+      detail: `The repro did not reproduce ${unsupported.length} claimed effect(s): ${unsupported.map((u) => u.label).join(", ")}.`,
       facts: {
-        artifactHash: detector.artifactHash,
-        detectorHash: detector.detectorHash,
-        unsupported: unsupported.map((u) => `${u.kind}:${u.value}`),
-        firedRules: detector.signals.map((s) => s.rule),
+        artifactHash: sandbox.artifactHash,
+        claimed: effectList(finding.claimedEffects).map((e) => e.label),
+        observed: effectList(sandbox.effects).map((e) => e.label),
+        trace: sandbox.trace,
       },
     };
   }
 
-  // 3. Does the world already know?
+  // 3. Did the run actually grant the access the seller declared? The LLM checks the
+  //    concrete captured artifacts against the seller's expectedResult. This is the
+  //    "new access granted" test: it gates the listing when an API key is present.
+  const judge = await judgeExploit(finding, sandbox);
+  if (judge && !judge.achieved) {
+    return {
+      ok: false,
+      reason: "access-not-demonstrated",
+      detail: `The captured artifacts do not demonstrate the declared access: ${judge.reason}`,
+      facts: { expectedResult: finding.expectedResult, captures: sandbox.captures, observed: effectList(sandbox.effects).map((e) => e.label) },
+    };
+  }
+
+  // 4. Does the world already know?
   const novelty = await checkNovelty({ name: finding.target.name, version: finding.target.version });
   if (!novelty.novel) {
     return {
@@ -145,24 +140,20 @@ export async function attest(req: AttestRequest): Promise<AttestOutcome> {
       detail: novelty.error
         ? `OSV could not be reached, so novelty cannot be asserted: ${novelty.error}`
         : `OSV already lists this package version as ${novelty.osvIds.join(", ")}. It is not intel, it is news.`,
-      facts: {
-        osvIds: novelty.osvIds,
-        checkedAt: novelty.checkedAt,
-        artifactHash: detector.artifactHash,
-        severity: detector.severity,
-      },
+      facts: { osvIds: novelty.osvIds, checkedAt: novelty.checkedAt, artifactHash: sandbox.artifactHash },
     };
   }
 
   const installBase = await weeklyDownloads(finding.target.name);
 
   const att = {
-    artifactHash: detector.artifactHash,
+    artifactHash: sandbox.artifactHash,
     contentHash,
     keyHash: keyHashOf(key),
-    detectorHash: detector.detectorHash,
-    severity: detector.severity,
-    vulnClass: detector.vulnClass,
+    traceHash: sandbox.traceHash,
+    sandboxHash: sandbox.sandboxHash,
+    outcomeHash: keccak256(toHex(Buffer.from(finding.outcome, "utf8"))),
+    effects: sandbox.effects,
     novel: true,
     installBase,
     expiresAt: BigInt(Math.floor(Date.now() / 1000) + VOUCHER_TTL_SECONDS),
@@ -174,102 +165,126 @@ export async function attest(req: AttestRequest): Promise<AttestOutcome> {
     ok: true,
     att,
     signature,
-    detector,
+    sandbox,
     novelty,
     meta: {
       targetLabel: `npm:${finding.target.name}@${finding.target.version}`,
-      detectorVersion: detector.detectorVersion,
-      signalRules: detector.signals.map((s) => s.rule).filter((r, i, a) => a.indexOf(r) === i),
+      outcome: finding.outcome,
+      sandboxVersion: sandbox.sandboxVersion,
+      effects: sandbox.effects,
       osvIds: novelty.osvIds,
       checkedAt: novelty.checkedAt,
+      judge: judge ?? undefined,
+      captures: sandbox.captures,
     },
   };
 }
 
-// ------------------------------------------------------------------- disputes
+/**
+ * The "new access granted" check. Given the seller's declared expectedResult and the
+ * CONCRETE artifacts the detonation captured (the exfiltrated payload decoded, the
+ * spawned command, the dynamically-evaluated second stage, the credential file read),
+ * the LLM decides whether the run actually demonstrates that access. This gates the
+ * attestation; the effects bitmask above stays the reproducible, money-gating part.
+ * Falls back to a mechanical check (at least one concrete artifact was captured) when
+ * no API key is set.
+ */
+async function judgeExploit(finding: Finding, sandbox: SandboxResult): Promise<{ achieved: boolean; reason: string; by: "claude" | "mechanical" } | null> {
+  const captures = sandbox.captures;
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) {
+    const achieved = captures.length > 0;
+    return { achieved, reason: achieved ? `${captures.length} concrete artifact(s) captured` : "no concrete artifact captured", by: "mechanical" };
+  }
+  try {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic({ apiKey: key });
+    const msg = await client.messages.create({
+      // cast: installed SDK types predate `thinking`, which the API accepts at runtime.
+      model: "claude-opus-5",
+      max_tokens: 400,
+      thinking: { type: "adaptive" },
+      system:
+        "You verify supply-chain malware exploits. A package was detonated in an instrumented sandbox with canary credentials and a network sink. You are given the seller's declared EXPECTED_RESULT (the access or output the exploit should grant) and the CONCRETE ARTIFACTS the run actually captured — exfiltrated payloads (decoded), spawned commands, dynamically-evaluated code, credential files read. Decide only whether the captured artifacts genuinely demonstrate the declared access. A payload that carries the canary token to an attacker host demonstrates credential theft; a decoded stage that reaches an external host demonstrates code execution. Reply as strict JSON {\"achieved\": boolean, \"reason\": string}. reason under 35 words, citing specific captured artifacts.",
+      messages: [
+        {
+          role: "user",
+          content: `EXPECTED_RESULT: ${finding.expectedResult}\nCAPTURED ARTIFACTS: ${JSON.stringify(captures)}\nDo the captured artifacts demonstrate this access?`,
+        },
+      ],
+    } as any);
+    const text = msg.content.find((c) => c.type === "text")?.text ?? "";
+    const json = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+    return { achieved: Boolean(json.achieved), reason: String(json.reason), by: "claude" };
+  } catch {
+    const achieved = captures.length > 0;
+    return { achieved, reason: achieved ? `${captures.length} concrete artifact(s) captured` : "no concrete artifact captured", by: "mechanical" };
+  }
+}
 
-export interface DisputeVerdict {
+
+// ------------------------------------------------------------------- challenge
+
+export interface ChallengeVerdict {
   sellerWins: boolean;
   reason: string;
+  rerunTraceHash: Hex;
   facts: Record<string, unknown>;
 }
 
 /**
- * A dispute can only ever be about the attestation being wrong. So resolving one
- * means re-running the same three checks against the same artifact hash and seeing
- * whether the signed grade still stands.
+ * The arbiter's stricter procedure. A challenge is NOT a single re-run of the
+ * oracle (that would always agree with itself). The arbiter re-detonates the repro
+ * MULTIPLE times and upholds the seller only if every run reproduces the exact
+ * attested trace hash and the attested effects, the artifact still hashes to the
+ * attested bytes, the sandbox has not changed, and OSV still has no entry. Any
+ * divergence — a flaky repro, a swapped artifact, a changed sandbox, effects that
+ * no longer appear — overturns the grade.
  */
 export async function adjudicate(args: {
   finding: Finding;
   attestedArtifactHash: Hex;
-  attestedSeverity: number;
-  attestedDetectorHash: Hex;
-}): Promise<DisputeVerdict> {
+  attestedTraceHash: Hex;
+  attestedSandboxHash: Hex;
+  attestedEffects: number;
+}): Promise<ChallengeVerdict> {
   const tarball = await loadArtifact(args.finding);
   if (!tarball) {
-    return {
-      sellerWins: false,
-      reason: "Artifact could no longer be fetched, so the grade cannot be upheld.",
-      facts: { artifact: args.finding.target.artifact },
-    };
+    return { sellerWins: false, reason: "Artifact could no longer be fetched, so the grade cannot be upheld.", rerunTraceHash: "0x", facts: { artifact: args.finding.target.artifact } };
   }
 
-  const observed = sha256Hex(tarball);
-  if (observed.toLowerCase() !== args.attestedArtifactHash.toLowerCase()) {
-    return {
-      sellerWins: false,
-      reason: "The artifact at the reported location no longer matches the attested hash.",
-      facts: { attested: args.attestedArtifactHash, observed },
-    };
+  const observedArtifact = sha256Hex(tarball);
+  if (observedArtifact.toLowerCase() !== args.attestedArtifactHash.toLowerCase()) {
+    return { sellerWins: false, reason: "The artifact no longer matches the attested hash.", rerunTraceHash: "0x", facts: { attested: args.attestedArtifactHash, observed: observedArtifact } };
   }
 
-  const rerun = analyze(tarball);
+  // Re-detonate several times; the repro must be perfectly reproducible.
+  const runs = [run(tarball, args.finding.repro), run(tarball, args.finding.repro), run(tarball, args.finding.repro)];
+  const hashes = new Set(runs.map((r) => r.traceHash.toLowerCase()));
+  const rerun = runs[0];
 
-  if (rerun.detectorHash.toLowerCase() !== args.attestedDetectorHash.toLowerCase()) {
-    return {
-      sellerWins: false,
-      reason: "The detector has changed since attestation, so the grade is not reproducible.",
-      facts: { attested: args.attestedDetectorHash, current: rerun.detectorHash },
-    };
+  if (hashes.size !== 1) {
+    return { sellerWins: false, reason: "The repro is not deterministic: repeated runs produced different traces.", rerunTraceHash: rerun.traceHash, facts: { traceHashes: [...hashes] } };
+  }
+  if (rerun.sandboxHash.toLowerCase() !== args.attestedSandboxHash.toLowerCase()) {
+    return { sellerWins: false, reason: "The sandbox runtime has changed since attestation, so the grade is not reproducible.", rerunTraceHash: rerun.traceHash, facts: { attested: args.attestedSandboxHash, current: rerun.sandboxHash } };
+  }
+  if (rerun.traceHash.toLowerCase() !== args.attestedTraceHash.toLowerCase()) {
+    return { sellerWins: false, reason: "Re-detonation produced a different trace than the one attested.", rerunTraceHash: rerun.traceHash, facts: { attested: args.attestedTraceHash, rerun: rerun.traceHash, trace: rerun.trace } };
+  }
+  if (rerun.effects !== args.attestedEffects) {
+    return { sellerWins: false, reason: `Re-run observed effects ${rerun.effects}, not the attested ${args.attestedEffects}.`, rerunTraceHash: rerun.traceHash, facts: { attested: args.attestedEffects, rerun: rerun.effects } };
   }
 
-  if (rerun.severity !== args.attestedSeverity) {
-    return {
-      sellerWins: false,
-      reason: `Re-run graded this ${rerun.severity}, not the attested ${args.attestedSeverity}.`,
-      facts: { attested: args.attestedSeverity, rerun: rerun.severity },
-    };
-  }
-
-  const novelty = await checkNovelty({
-    name: args.finding.target.name,
-    version: args.finding.target.version,
-  });
+  const novelty = await checkNovelty({ name: args.finding.target.name, version: args.finding.target.version });
   if (!novelty.novel) {
-    return {
-      sellerWins: false,
-      reason: `OSV now lists this as ${novelty.osvIds.join(", ")}, so it was not exclusive intel.`,
-      facts: { osvIds: novelty.osvIds, checkedAt: novelty.checkedAt },
-    };
-  }
-
-  const { unsupported } = claimsSupported(args.finding, rerun);
-  if (unsupported.length > 0) {
-    return {
-      sellerWins: false,
-      reason: "Claimed indicators are not present on re-run.",
-      facts: { unsupported: unsupported.map((u) => u.value) },
-    };
+    return { sellerWins: false, reason: `OSV now lists this as ${novelty.osvIds.join(", ")}, so it was not exclusive intel.`, rerunTraceHash: rerun.traceHash, facts: { osvIds: novelty.osvIds } };
   }
 
   return {
     sellerWins: true,
-    reason: `Detector ${rerun.detectorVersion} re-run on artifact ${observed.slice(0, 12)}… reproduces severity ${rerun.severity} and all claimed indicators; OSV still has no entry.`,
-    facts: {
-      artifactHash: observed,
-      severity: rerun.severity,
-      rules: rerun.signals.map((s) => s.rule).filter((r, i, a) => a.indexOf(r) === i),
-      checkedAt: novelty.checkedAt,
-    },
+    reason: `Sandbox ${rerun.sandboxVersion} re-detonated the repro 3× on artifact ${observedArtifact.slice(0, 12)}…, each time reproducing the attested trace and effects (${effectList(rerun.effects).map((e) => e.label).join(", ")}); OSV still has no entry.`,
+    rerunTraceHash: rerun.traceHash,
+    facts: { artifactHash: observedArtifact, effects: rerun.effects, trace: rerun.trace, checkedAt: novelty.checkedAt },
   };
 }

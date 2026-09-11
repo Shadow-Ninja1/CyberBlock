@@ -1,0 +1,6 @@
+{
+  "_comment": "Simulated external advisory feed for the demo. In production this is a live OSV/GHSA/registry-takedown lookup. A package listed here is treated as CONFIRMED by the world after disclosure, releasing the seller's contingent share. evil-widget gets an advisory (confirmed); sneaky-utils deliberately does not, to demonstrate the contingent returning to the buyer.",
+  "confirmed": {
+    "npm:evil-widget@1.2.0": "GHSA-demo-evil-widg3t — advisory published 2 days after disclosure; version unpublished from the registry"
+  }
+}

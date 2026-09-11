@@ -1,23 +1,19 @@
 {
-  "schema": "bbb.finding.v1",
+  "schema": "cyberblock.finding.v2",
   "target": {
     "ecosystem": "npm",
     "name": "sneaky-utils",
     "version": "0.4.1",
     "artifact": "fixtures/packages/sneaky-utils-0.4.1.tgz"
   },
-  "title": "sneaky-utils@0.4.1 hides a network call behind an obfuscated eval chain",
-  "summary": "lib.js base64-decodes a string and passes it to new Function() at require time, building 'eval' out of String.fromCharCode to dodge grep-based scanners. The decoded payload (base64 in the source, so it evades literal-string scanners) reaches out to pkg-analytics.top.",
-  "iocs": {
-    "domains": [],
-    "files": [
-      "lib.js"
-    ],
-    "snippets": [
-      "new Function",
-      "fromCharCode"
-    ]
+  "repro": {
+    "trigger": "require",
+    "entry": "lib.js"
   },
-  "remediation": "Avoid 0.4.1; the maintainer account may be compromised.",
+  "claimedEffects": 4,
+  "outcome": "Requiring the package decodes a hidden string and beacons to pkg-analytics.top through new Function().",
+  "expectedResult": "Requiring the package gains outbound code execution: the decoded second stage runs and reaches attacker-controlled pkg-analytics.top, establishing a beacon the attacker can use to stage further payloads.",
+  "writeup": "lib.js base64-decodes a string and passes it to new Function() at require time, assembling 'eval' out of String.fromCharCode to dodge grep-based scanners. The decoded payload calls out to https://pkg-analytics.top/ping. The sandbox trace shows the require, the constructed function, and the outbound GET to an external host — a live network beacon a static scanner misses because the host never appears as a literal string.",
+  "remediation": "Avoid 0.4.1; the maintainer account may be compromised. Block pkg-analytics.top.",
   "reporter": "researcher.eth"
 }

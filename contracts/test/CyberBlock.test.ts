@@ -5,34 +5,32 @@ import hre from "hardhat";
 chai.use(chaiAsPromised);
 const { expect } = chai;
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import {
-  keccak256,
-  toHex,
-  encodePacked,
-  parseEther,
-  type Hex,
-  getAddress,
-} from "viem";
+import { keccak256, toHex, encodePacked, parseEther, type Hex, getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-// Hardhat's default account #1 acts as the oracle, so it can both sign
-// attestations off-chain and send resolve() transactions on-chain.
+// Hardhat default account #1 is the oracle and #2 the arbiter, so each can sign
+// off-chain and send its own transactions on-chain.
 const ORACLE_PK = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as Hex;
+const ARBITER_PK = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" as Hex;
 const oracleAccount = privateKeyToAccount(ORACLE_PK);
+const arbiterAccount = privateKeyToAccount(ARBITER_PK);
 
 const MINUTE = 60;
+const MIN_AUCTION = 1 * MINUTE;
 const MIN_EMBARGO = 2 * MINUTE;
 const CHALLENGE_WINDOW = 1 * MINUTE;
 const DELIVERY_DEADLINE = 10 * MINUTE;
 const DISCLOSURE_GRACE = 2 * MINUTE;
+const CONFIRMATION_WINDOW = 2 * MINUTE;
 
 type Attestation = {
   artifactHash: Hex;
   contentHash: Hex;
   keyHash: Hex;
-  detectorHash: Hex;
-  severity: number;
-  vulnClass: number;
+  traceHash: Hex;
+  sandboxHash: Hex;
+  outcomeHash: Hex;
+  effects: number;
   novel: boolean;
   installBase: number;
   expiresAt: bigint;
@@ -43,9 +41,10 @@ const EIP712_TYPES = {
     { name: "artifactHash", type: "bytes32" },
     { name: "contentHash", type: "bytes32" },
     { name: "keyHash", type: "bytes32" },
-    { name: "detectorHash", type: "bytes32" },
-    { name: "severity", type: "uint8" },
-    { name: "vulnClass", type: "uint8" },
+    { name: "traceHash", type: "bytes32" },
+    { name: "sandboxHash", type: "bytes32" },
+    { name: "outcomeHash", type: "bytes32" },
+    { name: "effects", type: "uint16" },
     { name: "novel", type: "bool" },
     { name: "installBase", type: "uint32" },
     { name: "expiresAt", type: "uint64" },
@@ -53,74 +52,89 @@ const EIP712_TYPES = {
 } as const;
 
 const KEY = keccak256(toHex("demo-symmetric-key"));
+const OUTCOME = "On npm install, reads ~/.npmrc and POSTs it to telemetry-cdn.xyz.";
+const BUYER_PUBKEY = ("0x04" + "11".repeat(64)) as Hex;
+
+const START = parseEther("0.002");
+const RESERVE = parseEther("0.0005");
+const DURATION = BigInt(3 * MINUTE);
+const CONTINGENT_BPS = 5_000;
 
 async function fixture() {
   const clients = await hre.viem.getWalletClients();
-  const [deployer, oracleWallet, seller, buyer, stranger] = clients;
-  const bazaar = await hre.viem.deployContract("CyberBlock", [oracleAccount.address]);
+  const [deployer, oracleWallet, arbiterWallet, seller, buyer, stranger] = clients;
+  const bazaar = await hre.viem.deployContract("CyberBlock", [oracleAccount.address, arbiterAccount.address]);
   const publicClient = await hre.viem.getPublicClient();
-
-  return { bazaar, publicClient, deployer, seller, buyer, stranger, oracleWallet };
+  return { bazaar, publicClient, deployer, seller, buyer, stranger, oracleWallet, arbiterWallet };
 }
 
-async function makeAttestation(
-  bazaar: any,
-  overrides: Partial<Attestation> = {},
-): Promise<{ att: Attestation; sig: Hex }> {
+async function makeAttestation(bazaar: any, overrides: Partial<Attestation> = {}, signer = oracleAccount) {
   const latest = await time.latest();
   const att: Attestation = {
     artifactHash: keccak256(toHex("npm:evil-widget@1.2.0")),
     contentHash: keccak256(toHex("the finding plaintext")),
     keyHash: keccak256(encodePacked(["bytes32"], [KEY])),
-    detectorHash: keccak256(toHex("detector-v1")),
-    severity: 81,
-    vulnClass: 1, // InstallHookExfil
+    traceHash: keccak256(toHex("canonical sandbox trace")),
+    sandboxHash: keccak256(toHex("sandbox-v2")),
+    outcomeHash: keccak256(toHex(OUTCOME)),
+    effects: 1 | 4 | 8 | 64,
     novel: true,
     installBase: 250_000,
     expiresAt: BigInt(latest + 3600),
     ...overrides,
   };
-
-  const sig = await oracleAccount.signTypedData({
-    domain: {
-      name: "CyberBlock",
-      version: "1",
-      chainId: 31337,
-      verifyingContract: getAddress(bazaar.address),
-    },
+  const sig = await signer.signTypedData({
+    domain: { name: "CyberBlock", version: "2", chainId: 31337, verifyingContract: getAddress(bazaar.address) },
     types: EIP712_TYPES,
     primaryType: "Attestation",
     message: att,
   });
-
   return { att, sig };
 }
 
-/** Lists a finding at the attested fair price with the minimum stake. */
-async function listFinding(
-  bazaar: any,
-  seller: any,
-  overrides: Partial<Attestation> = {},
-  embargo = BigInt(MIN_EMBARGO),
-) {
-  const { att, sig } = await makeAttestation(bazaar, overrides);
-  const fair = await bazaar.read.fairPrice([att, embargo]);
-  const stake = await bazaar.read.minStake([fair]);
-  const hash = await bazaar.write.list(
-    [att, sig, fair, embargo, "npm:evil-widget@1.2.0", toHex("ciphertext-blob")],
-    { account: seller.account, value: stake },
-  );
-  const publicClient = await hre.viem.getPublicClient();
-  await publicClient.waitForTransactionReceipt({ hash });
-  return { att, sig, price: fair as bigint, stake: stake as bigint, id: 1n };
+interface ListOpts {
+  overrides?: Partial<Attestation>;
+  start?: bigint;
+  reserve?: bigint;
+  duration?: bigint;
+  contingentBps?: number;
+  embargo?: bigint;
+  outcome?: string;
+  stake?: bigint;
 }
 
-const BUYER_PUBKEY = ("0x04" + "11".repeat(64)) as Hex;
+async function listFinding(bazaar: any, seller: any, o: ListOpts = {}) {
+  const { att, sig } = await makeAttestation(bazaar, o.overrides);
+  const start = o.start ?? START;
+  const reserve = o.reserve ?? RESERVE;
+  const stake = o.stake ?? ((await bazaar.read.minStake([reserve])) as bigint);
+  const hash = await bazaar.write.list(
+    [
+      att,
+      sig,
+      o.outcome ?? OUTCOME,
+      start,
+      reserve,
+      o.duration ?? DURATION,
+      o.contingentBps ?? CONTINGENT_BPS,
+      o.embargo ?? BigInt(MIN_EMBARGO),
+      "npm:evil-widget@1.2.0",
+      toHex("ciphertext-blob"),
+    ],
+    { account: seller.account, value: stake },
+  );
+  await (await hre.viem.getPublicClient()).waitForTransactionReceipt({ hash });
+  return { att, sig, stake, id: 1n };
+}
 
-/**
- * Net balance change for `address` across a transaction it sent, with the gas it
- * burned added back, so amounts can be asserted exactly.
- */
+/** Buys at the current price, sending exactly that amount. Returns the clearing price. */
+async function buyNow(bazaar: any, buyer: any, id = 1n) {
+  const p = (await bazaar.read.currentPrice([id])) as bigint;
+  // Send a little extra so the block timestamp moving forward can never underpay.
+  await bazaar.write.buy([id, BUYER_PUBKEY], { account: buyer.account, value: p });
+  return ((await bazaar.read.getListing([id])) as any).price as bigint;
+}
+
 async function netReceived(publicClient: any, address: Hex, send: () => Promise<Hex>) {
   const before = await publicClient.getBalance({ address });
   const hash = await send();
@@ -129,371 +143,346 @@ async function netReceived(publicClient: any, address: Hex, send: () => Promise<
   return after - before + receipt.gasUsed * receipt.effectiveGasPrice;
 }
 
+/** Balance change for `address` across a transaction somebody ELSE sent. */
+async function receivedFromOther(publicClient: any, address: Hex, send: () => Promise<Hex>) {
+  const before = await publicClient.getBalance({ address });
+  const hash = await send();
+  await publicClient.waitForTransactionReceipt({ hash });
+  const after = await publicClient.getBalance({ address });
+  return after - before;
+}
+
 describe("CyberBlock", () => {
-  describe("pricing rule", () => {
-    it("prices a finding from attested severity, class, blast radius and embargo", async () => {
-      const { bazaar } = await fixture();
-      const { att } = await makeAttestation(bazaar);
+  describe("dutch auction", () => {
+    it("decays linearly from the start price to the reserve and then holds", async () => {
+      const { bazaar, seller } = await fixture();
+      await listFinding(bazaar, seller);
+      const p0 = (await bazaar.read.currentPrice([1n])) as bigint;
+      expect(p0).to.equal(START);
 
-      const short = (await bazaar.read.fairPrice([att, BigInt(MIN_EMBARGO)])) as bigint;
-      const long = (await bazaar.read.fairPrice([att, BigInt(30 * 24 * 3600)])) as bigint;
+      await time.increase(90); // half way through a 3 minute auction
+      const pHalf = (await bazaar.read.currentPrice([1n])) as bigint;
+      const mid = (START + RESERVE) / 2n;
+      expect(pHalf <= mid + (START - RESERVE) / 100n && pHalf >= mid - (START - RESERVE) / 100n).to.equal(true);
 
-      // severity 81 -> 0.0004 * 0.81 = 0.000324; class 130% -> 0.0004212;
-      // installBase 250k -> reach 25 -> 125% -> 0.0005265
-      expect(short).to.equal(526_500_000_000_000n);
-      // A maximum embargo doubles it: the buyer is paying for exclusivity time.
-      expect(long).to.equal(short * 2n);
+      await time.increase(3 * MINUTE);
+      expect((await bazaar.read.currentPrice([1n])) as bigint).to.equal(RESERVE);
     });
 
-    it("prices a non-novel finding at zero, so it cannot be listed", async () => {
-      const { bazaar } = await fixture();
-      const { att } = await makeAttestation(bazaar, { novel: false });
-      expect(await bazaar.read.fairPrice([att, BigInt(MIN_EMBARGO)])).to.equal(0n);
+    it("charges the current price and refunds any excess the buyer sent", async () => {
+      const { bazaar, seller, buyer, publicClient } = await fixture();
+      await listFinding(bazaar, seller);
+      await time.increase(DURATION); // now at reserve
+      const spent = -(await netReceived(publicClient, buyer.account.address, () =>
+        bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: START }),
+      ));
+      expect(spent).to.equal(RESERVE);
+      const l = (await bazaar.read.getListing([1n])) as any;
+      expect(l.price).to.equal(RESERVE);
+      expect(l.contingentPart).to.equal(RESERVE / 2n);
+      expect(l.basePart).to.equal(RESERVE - RESERVE / 2n);
+      expect(l.contingent).to.equal(1); // Escrowed
     });
 
-    it("caps a new seller's listing size and grows it with reputation", async () => {
+    it("rejects a purchase below the current price", async () => {
+      const { bazaar, seller, buyer } = await fixture();
+      await listFinding(bazaar, seller);
+      await expect(
+        bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: RESERVE }),
+      ).to.be.rejectedWith("WrongPayment");
+    });
+
+    it("rejects auctions with a zero reserve, an inverted range, or a bad duration", async () => {
+      const { bazaar, seller } = await fixture();
+      await expect(listFinding(bazaar, seller, { reserve: 0n })).to.be.rejectedWith("BadAuction");
+      await expect(listFinding(bazaar, seller, { reserve: START * 2n, start: START })).to.be.rejectedWith("BadAuction");
+      await expect(listFinding(bazaar, seller, { duration: 10n })).to.be.rejectedWith("BadAuction");
+    });
+
+    it("rejects a contingent share above the maximum", async () => {
+      const { bazaar, seller } = await fixture();
+      await expect(listFinding(bazaar, seller, { contingentBps: 9_500 })).to.be.rejectedWith("BadContingent");
+    });
+
+    it("caps a new seller's start price and grows the cap with reputation", async () => {
       const { bazaar, seller } = await fixture();
       const cap = (await bazaar.read.priceCap([seller.account.address])) as bigint;
       expect(cap).to.equal(parseEther("0.002"));
+      await expect(listFinding(bazaar, seller, { start: cap + 1n })).to.be.rejectedWith("PriceAboveRepCap");
     });
   });
 
   describe("listing", () => {
     it("accepts a listing carrying a valid oracle attestation", async () => {
-      const { bazaar, seller, publicClient } = await fixture();
-      const { price, stake } = await listFinding(bazaar, seller);
-
+      const { bazaar, seller } = await fixture();
+      const { stake } = await listFinding(bazaar, seller);
       const l = (await bazaar.read.getListing([1n])) as any;
-      expect(getAddress(l.seller)).to.equal(getAddress(seller.account.address));
-      expect(l.price).to.equal(price);
+      expect(l.seller.toLowerCase()).to.equal(seller.account.address.toLowerCase());
+      expect(l.status).to.equal(1);
       expect(l.stake).to.equal(stake);
-      expect(l.status).to.equal(1); // Listed
-      expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(stake);
+      expect(l.auction.contingentBps).to.equal(CONTINGENT_BPS);
     });
 
     it("rejects a listing whose attestation was not signed by the oracle", async () => {
       const { bazaar, seller } = await fixture();
-      const { att } = await makeAttestation(bazaar);
-      const impostor = privateKeyToAccount(
-        "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" as Hex,
-      );
-      const sig = await impostor.signTypedData({
-        domain: {
-          name: "CyberBlock",
-          version: "1",
-          chainId: 31337,
-          verifyingContract: getAddress(bazaar.address),
-        },
-        types: EIP712_TYPES,
-        primaryType: "Attestation",
-        message: att,
-      });
-      const fair = await bazaar.read.fairPrice([att, BigInt(MIN_EMBARGO)]);
+      const impostor = privateKeyToAccount(ARBITER_PK);
+      const { att, sig } = await makeAttestation(bazaar, {}, impostor);
       await expect(
-        bazaar.write.list([att, sig, fair, BigInt(MIN_EMBARGO), "x", "0x00"], {
-          account: seller.account,
-          value: await bazaar.read.minStake([fair]),
-        }),
+        bazaar.write.list(
+          [att, sig, OUTCOME, START, RESERVE, DURATION, CONTINGENT_BPS, BigInt(MIN_EMBARGO), "x", toHex("c")],
+          { account: seller.account, value: parseEther("1") },
+        ),
       ).to.be.rejectedWith("BadSignature");
     });
 
     it("rejects a listing whose attestation fields were tampered with after signing", async () => {
       const { bazaar, seller } = await fixture();
       const { att, sig } = await makeAttestation(bazaar);
-      const inflated = { ...att, severity: 100 };
-      const fair = await bazaar.read.fairPrice([inflated, BigInt(MIN_EMBARGO)]);
+      const tampered = { ...att, effects: 127 };
       await expect(
-        bazaar.write.list([inflated, sig, fair, BigInt(MIN_EMBARGO), "x", "0x00"], {
-          account: seller.account,
-          value: await bazaar.read.minStake([fair]),
-        }),
+        bazaar.write.list(
+          [tampered, sig, OUTCOME, START, RESERVE, DURATION, CONTINGENT_BPS, BigInt(MIN_EMBARGO), "x", toHex("c")],
+          { account: seller.account, value: parseEther("1") },
+        ),
       ).to.be.rejectedWith("BadSignature");
+    });
+
+    it("rejects a public outcome that differs from the one the oracle signed", async () => {
+      const { bazaar, seller } = await fixture();
+      await expect(listFinding(bazaar, seller, { outcome: "Steals SSH keys and drops a reverse shell." })).to.be.rejectedWith(
+        "OutcomeMismatch",
+      );
     });
 
     it("rejects an expired attestation voucher", async () => {
       const { bazaar, seller } = await fixture();
       const latest = await time.latest();
-      const { att, sig } = await makeAttestation(bazaar, { expiresAt: BigInt(latest - 1) });
-      await expect(
-        bazaar.write.list([att, sig, 1n, BigInt(MIN_EMBARGO), "x", "0x00"], {
-          account: seller.account,
-          value: 1n,
-        }),
-      ).to.be.rejectedWith("AttestationExpired");
+      await expect(listFinding(bazaar, seller, { overrides: { expiresAt: BigInt(latest - 1) } })).to.be.rejectedWith(
+        "AttestationExpired",
+      );
     });
 
-    it("rejects an extortion price outside the attested fair-value band", async () => {
+    it("rejects a non-novel finding", async () => {
       const { bazaar, seller } = await fixture();
-      const { att, sig } = await makeAttestation(bazaar);
-      const fair = (await bazaar.read.fairPrice([att, BigInt(MIN_EMBARGO)])) as bigint;
-      const greedy = fair * 4n;
-      await expect(
-        bazaar.write.list([att, sig, greedy, BigInt(MIN_EMBARGO), "x", "0x00"], {
-          account: seller.account,
-          value: await bazaar.read.minStake([greedy]),
-        }),
-      ).to.be.rejectedWith("PriceOutOfBand");
+      await expect(listFinding(bazaar, seller, { overrides: { novel: false } })).to.be.rejectedWith("NotNovel");
     });
 
     it("rejects a second listing for the same artifact", async () => {
-      const { bazaar, seller, buyer } = await fixture();
+      const { bazaar, seller } = await fixture();
       await listFinding(bazaar, seller);
-      const { att, sig } = await makeAttestation(bazaar); // same artifactHash
-      const fair = await bazaar.read.fairPrice([att, BigInt(MIN_EMBARGO)]);
-      await expect(
-        bazaar.write.list([att, sig, fair, BigInt(MIN_EMBARGO), "x", "0x00"], {
-          account: buyer.account,
-          value: await bazaar.read.minStake([fair]),
-        }),
-      ).to.be.rejectedWith("DuplicateArtifact");
+      await expect(listFinding(bazaar, seller)).to.be.rejectedWith("DuplicateArtifact");
     });
 
     it("rejects an understaked listing", async () => {
       const { bazaar, seller } = await fixture();
-      const { att, sig } = await makeAttestation(bazaar);
-      const fair = (await bazaar.read.fairPrice([att, BigInt(MIN_EMBARGO)])) as bigint;
-      await expect(
-        bazaar.write.list([att, sig, fair, BigInt(MIN_EMBARGO), "x", "0x00"], {
-          account: seller.account,
-          value: (await bazaar.read.minStake([fair])) - 1n,
-        }),
-      ).to.be.rejectedWith("StakeTooLow");
+      await expect(listFinding(bazaar, seller, { stake: 1n })).to.be.rejectedWith("StakeTooLow");
     });
 
     it("returns the stake when a seller cancels an unsold listing", async () => {
       const { bazaar, seller, publicClient } = await fixture();
       const { stake } = await listFinding(bazaar, seller);
-      const recovered = await netReceived(publicClient, seller.account.address, () =>
+      const back = await netReceived(publicClient, seller.account.address, () =>
         bazaar.write.cancel([1n], { account: seller.account }),
       );
-      expect(recovered).to.equal(stake);
-      expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(0n);
+      expect(back).to.equal(stake);
+      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(8);
     });
   });
 
   describe("happy path", () => {
-    it("pays the seller after the challenge window and returns the bond on disclosure", async () => {
-      const { bazaar, seller, buyer, publicClient } = await fixture();
-      const { price, stake } = await listFinding(bazaar, seller);
-
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
-      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(2); // Sold
+    it("pays the base at settlement, returns the bond on disclosure, and releases the contingent on confirmation", async () => {
+      const { bazaar, seller, buyer, publicClient, oracleWallet } = await fixture();
+      const { stake } = await listFinding(bazaar, seller);
+      const price = await buyNow(bazaar, buyer);
+      const l0 = (await bazaar.read.getListing([1n])) as any;
+      const base = l0.basePart as bigint;
+      const contingent = l0.contingentPart as bigint;
+      expect(base + contingent).to.equal(price);
 
       await bazaar.write.deliver([1n, toHex("ecies-wrapped-key")], { account: seller.account });
-      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(3); // Delivered
-
-      // Cannot be paid before the buyer's challenge window closes.
-      await expect(bazaar.write.claimPayment([1n], { account: seller.account })).to.be.rejectedWith(
-        "TooEarly",
-      );
+      await expect(bazaar.write.claimPayment([1n], { account: seller.account })).to.be.rejectedWith("TooEarly");
 
       await time.increase(CHALLENGE_WINDOW + 1);
-      const beforePay = await publicClient.getBalance({ address: seller.account.address });
-      await bazaar.write.claimPayment([1n], { account: buyer.account }); // anyone may trigger it
-      const afterPay = await publicClient.getBalance({ address: seller.account.address });
-      expect(afterPay - beforePay).to.equal(price);
-
-      const l = (await bazaar.read.getListing([1n])) as any;
-      expect(l.status).to.equal(5); // Settled
-      expect(l.paidOut).to.equal(true);
-      // The stake is still held: it is a disclosure bond, not a performance bond.
-      expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(stake);
+      const paid = await netReceived(publicClient, seller.account.address, () =>
+        bazaar.write.claimPayment([1n], { account: seller.account }),
+      );
+      expect(paid).to.equal(base);
+      // Stake and contingent are both still held.
+      expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(stake + contingent);
       expect(((await bazaar.read.sellerRep([seller.account.address])) as any)[0]).to.equal(1);
 
-      // Embargo still running: no public disclosure yet.
-      await expect(bazaar.write.disclose([1n, KEY], { account: seller.account })).to.be.rejectedWith(
-        "TooEarly",
-      );
-
+      await expect(bazaar.write.disclose([1n, KEY], { account: seller.account })).to.be.rejectedWith("TooEarly");
       await time.increase(MIN_EMBARGO);
       const bondBack = await netReceived(publicClient, seller.account.address, () =>
         bazaar.write.disclose([1n, KEY], { account: seller.account }),
       );
       expect(bondBack).to.equal(stake);
+      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(6);
 
-      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(6); // Disclosed
+      // An advisory lands inside the confirmation window: the contingent goes to the seller.
+      const released = await receivedFromOther(publicClient, seller.account.address, () =>
+        bazaar.write.confirmOutcome([1n, "GHSA-xxxx-yyyy-zzzz"], { account: oracleWallet.account }),
+      );
+      expect(released).to.equal(contingent);
       expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(0n);
+      const l = (await bazaar.read.getListing([1n])) as any;
+      expect(l.contingent).to.equal(2); // Released
+      expect(((await bazaar.read.sellerRep([seller.account.address])) as any)[2]).to.equal(1);
+    });
 
-      const events = await publicClient.getContractEvents({
-        address: bazaar.address,
-        abi: bazaar.abi,
-        eventName: "Disclosed",
-      });
-      expect(events[0].args.key).to.equal(KEY);
+    it("returns most of the contingent to the buyer and keeps a slice in the pool when no advisory arrives", async () => {
+      const { bazaar, seller, buyer, publicClient, stranger } = await fixture();
+      await listFinding(bazaar, seller);
+      await buyNow(bazaar, buyer);
+      const contingent = ((await bazaar.read.getListing([1n])) as any).contingentPart as bigint;
+      await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
+      await time.increase(CHALLENGE_WINDOW + MIN_EMBARGO + 1);
+      await bazaar.write.disclose([1n, KEY], { account: seller.account });
+
+      await expect(bazaar.write.expireContingent([1n], { account: stranger.account })).to.be.rejectedWith("TooEarly");
+      await time.increase(CONFIRMATION_WINDOW + 1);
+
+      const toBuyer = await netReceived(publicClient, buyer.account.address, () =>
+        bazaar.write.expireContingent([1n], { account: buyer.account }),
+      );
+      const toPool = (contingent * 2_000n) / 10_000n;
+      expect(toBuyer).to.equal(contingent - toPool);
+      expect((await bazaar.read.disclosurePool()) as bigint).to.equal(toPool);
+      expect(((await bazaar.read.getListing([1n])) as any).contingent).to.equal(3); // Returned
+      expect(((await bazaar.read.sellerRep([seller.account.address])) as any)[3]).to.equal(1);
+      // Too late for the oracle to confirm now.
+      await expect(bazaar.write.confirmOutcome([1n, "late"], { account: (await hre.viem.getWalletClients())[1].account })).to.be.rejectedWith(
+        "NothingEscrowed",
+      );
+    });
+
+    it("only lets the oracle confirm, and only inside the window", async () => {
+      const { bazaar, seller, buyer, stranger, oracleWallet } = await fixture();
+      await listFinding(bazaar, seller);
+      await buyNow(bazaar, buyer);
+      await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
+      await time.increase(CHALLENGE_WINDOW + MIN_EMBARGO + 1);
+      await bazaar.write.disclose([1n, KEY], { account: seller.account });
+      await expect(bazaar.write.confirmOutcome([1n, "x"], { account: stranger.account })).to.be.rejectedWith("NotOracle");
+      await time.increase(CONFIRMATION_WINDOW + 1);
+      await expect(bazaar.write.confirmOutcome([1n, "x"], { account: oracleWallet.account })).to.be.rejectedWith("TooLate");
     });
 
     it("rejects a disclosure with the wrong key", async () => {
       const { bazaar, seller, buyer } = await fixture();
-      const { price } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
+      await listFinding(bazaar, seller);
+      await buyNow(bazaar, buyer);
       await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
       await time.increase(CHALLENGE_WINDOW + MIN_EMBARGO + 1);
-      await expect(
-        bazaar.write.disclose([1n, keccak256(toHex("wrong"))], { account: seller.account }),
-      ).to.be.rejectedWith("BadKey");
+      await expect(bazaar.write.disclose([1n, keccak256(toHex("wrong"))], { account: seller.account })).to.be.rejectedWith("BadKey");
     });
-  });
 
-  describe("disclosure bond", () => {
     it("lets anyone holding the key claim the bond if the seller stalls past the grace period", async () => {
-      const { bazaar, seller, buyer, stranger, publicClient } = await fixture();
-      const { price, stake } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
+      const { bazaar, seller, buyer, publicClient } = await fixture();
+      const { stake } = await listFinding(bazaar, seller);
+      await buyNow(bazaar, buyer);
       await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
       await time.increase(CHALLENGE_WINDOW + MIN_EMBARGO + 1);
-
-      // Only the seller may disclose during the grace period.
-      await expect(bazaar.write.disclose([1n, KEY], { account: stranger.account })).to.be.rejectedWith(
-        "TooEarly",
-      );
-
+      await expect(bazaar.write.disclose([1n, KEY], { account: buyer.account })).to.be.rejectedWith("TooEarly");
       await time.increase(DISCLOSURE_GRACE);
-      const bounty = await netReceived(publicClient, stranger.account.address, () =>
-        bazaar.write.disclose([1n, KEY], { account: stranger.account }),
+      const got = await netReceived(publicClient, buyer.account.address, () =>
+        bazaar.write.disclose([1n, KEY], { account: buyer.account }),
       );
-      expect(bounty).to.equal(stake);
-      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(6);
+      expect(got).to.equal(stake);
     });
   });
 
-  describe("dispute", () => {
-    it("pays the seller and awards the bond when the oracle upholds the attestation", async () => {
-      const { bazaar, seller, buyer, oracleWallet, publicClient } = await fixture();
-      const { price } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
-      await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
+  describe("challenge", () => {
+    async function delivered() {
+      const f = await fixture();
+      const { stake } = await listFinding(f.bazaar, f.seller);
+      const price = await buyNow(f.bazaar, f.buyer);
+      await f.bazaar.write.deliver([1n, toHex("k")], { account: f.seller.account });
+      const bond = (await f.bazaar.read.challengeBondFor([price])) as bigint;
+      const l = (await f.bazaar.read.getListing([1n])) as any;
+      return { ...f, stake, price, bond, base: l.basePart as bigint, contingent: l.contingentPart as bigint };
+    }
 
-      const bond = (await bazaar.read.disputeBondFor([price])) as bigint;
-      await bazaar.write.dispute([1n, "claims not reproducible"], {
-        account: buyer.account,
-        value: bond,
-      });
-      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(4); // Disputed
-
-      const before = await publicClient.getBalance({ address: seller.account.address });
-      await bazaar.write.resolve([1n, true, "detector re-run reproduces the finding"], {
-        account: oracleWallet.account,
-      });
-      const after = await publicClient.getBalance({ address: seller.account.address });
-      expect(after - before).to.equal(price + bond); // griefing costs the buyer the bond
-
-      const l = (await bazaar.read.getListing([1n])) as any;
-      expect(l.status).to.equal(5); // Settled
-      expect(((await bazaar.read.sellerRep([seller.account.address])) as any)[0]).to.equal(1);
+    it("pays the seller the base plus the bond when the arbiter upholds the attestation", async () => {
+      const { bazaar, seller, buyer, arbiterWallet, publicClient, bond, base, stake, contingent } = await delivered();
+      await bazaar.write.challenge([1n, keccak256(toHex("my trace")), "trace differs"], { account: buyer.account, value: bond });
+      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(4);
+      const got = await receivedFromOther(publicClient, seller.account.address, () =>
+        bazaar.write.resolveChallenge([1n, true, keccak256(toHex("rerun")), "three fresh runs reproduced the attested trace"], {
+          account: arbiterWallet.account,
+        }),
+      );
+      expect(got).to.equal(base + bond);
+      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(5);
+      expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(stake + contingent);
     });
 
-    it("refunds the buyer and slashes the stake when the oracle overturns the attestation", async () => {
-      const { bazaar, seller, buyer, oracleWallet, publicClient } = await fixture();
-      const { price, stake } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
-      await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
-
-      const bond = (await bazaar.read.disputeBondFor([price])) as bigint;
-      await bazaar.write.dispute([1n, "already public as GHSA-xxxx"], {
-        account: buyer.account,
-        value: bond,
-      });
-
-      const before = await publicClient.getBalance({ address: buyer.account.address });
-      await bazaar.write.resolve([1n, false, "OSV lists this package as of an earlier date"], {
-        account: oracleWallet.account,
-      });
-      const after = await publicClient.getBalance({ address: buyer.account.address });
-      expect(after - before).to.equal(price + stake + bond);
-
-      const l = (await bazaar.read.getListing([1n])) as any;
-      expect(l.status).to.equal(7); // Refunded
+    it("refunds the buyer and hands the stake to a third-party challenger when the challenge is upheld", async () => {
+      const { bazaar, seller, buyer, stranger, arbiterWallet, publicClient, bond, price, stake } = await delivered();
+      await bazaar.write.challenge([1n, keccak256(toHex("t")), "claims not reproduced"], { account: stranger.account, value: bond });
+      const buyerBefore = await publicClient.getBalance({ address: buyer.account.address });
+      const challengerGot = await receivedFromOther(publicClient, stranger.account.address, () =>
+        bazaar.write.resolveChallenge([1n, false, keccak256(toHex("rerun")), "claimed exfil never happened"], {
+          account: arbiterWallet.account,
+        }),
+      );
+      const buyerAfter = await publicClient.getBalance({ address: buyer.account.address });
+      expect(buyerAfter - buyerBefore).to.equal(price);
+      expect(challengerGot).to.equal(bond + stake);
+      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(7);
       expect(((await bazaar.read.sellerRep([seller.account.address])) as any)[1]).to.equal(1);
       expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(0n);
-
-      // The artifact lock is released so an honest seller can report it properly.
-      expect(await bazaar.read.listingByArtifact([keccak256(toHex("npm:evil-widget@1.2.0"))])).to.equal(0n);
     });
 
-    it("only lets the oracle resolve a dispute", async () => {
-      const { bazaar, seller, buyer } = await fixture();
-      const { price } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
-      await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
-      await bazaar.write.dispute([1n, "r"], {
-        account: buyer.account,
-        value: await bazaar.read.disputeBondFor([price]),
-      });
+    it("only lets the arbiter resolve, never the oracle", async () => {
+      const { bazaar, buyer, oracleWallet, bond } = await delivered();
+      await bazaar.write.challenge([1n, keccak256(toHex("t")), "x"], { account: buyer.account, value: bond });
       await expect(
-        bazaar.write.resolve([1n, true, "self-serving"], { account: seller.account }),
-      ).to.be.rejectedWith("NotOracle");
+        bazaar.write.resolveChallenge([1n, true, keccak256(toHex("r")), "x"], { account: oracleWallet.account }),
+      ).to.be.rejectedWith("NotArbiter");
     });
 
-    it("rejects a dispute filed after the challenge window closes", async () => {
-      const { bazaar, seller, buyer } = await fixture();
-      const { price } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
-      await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
+    it("rejects a challenge filed after the window closes", async () => {
+      const { bazaar, buyer, bond } = await delivered();
       await time.increase(CHALLENGE_WINDOW + 1);
-      await expect(
-        bazaar.write.dispute([1n, "too late"], {
-          account: buyer.account,
-          value: await bazaar.read.disputeBondFor([price]),
-        }),
-      ).to.be.rejectedWith("TooLate");
+      await expect(bazaar.write.challenge([1n, keccak256(toHex("t")), "x"], { account: buyer.account, value: bond })).to.be.rejectedWith(
+        "TooLate",
+      );
     });
   });
 
   describe("seller timeout", () => {
     it("refunds the buyer the price plus the whole stake when the seller never delivers", async () => {
       const { bazaar, seller, buyer, publicClient } = await fixture();
-      const { price, stake } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
-
-      await expect(bazaar.write.claimTimeout([1n], { account: buyer.account })).to.be.rejectedWith(
-        "TooEarly",
-      );
-
+      const { stake } = await listFinding(bazaar, seller);
+      const price = await buyNow(bazaar, buyer);
+      await expect(bazaar.write.claimTimeout([1n], { account: buyer.account })).to.be.rejectedWith("TooEarly");
       await time.increase(DELIVERY_DEADLINE + 1);
-      const refund = await netReceived(publicClient, buyer.account.address, () =>
+      const got = await netReceived(publicClient, buyer.account.address, () =>
         bazaar.write.claimTimeout([1n], { account: buyer.account }),
       );
-      expect(refund).to.equal(price + stake);
-
-      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(7); // Refunded
+      expect(got).to.equal(price + stake);
+      expect(((await bazaar.read.getListing([1n])) as any).status).to.equal(7);
       expect(((await bazaar.read.sellerRep([seller.account.address])) as any)[1]).to.equal(1);
-      expect(await publicClient.getBalance({ address: bazaar.address })).to.equal(0n);
     });
 
     it("stops the seller delivering after the deadline has passed", async () => {
       const { bazaar, seller, buyer } = await fixture();
-      const { price } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
+      await listFinding(bazaar, seller);
+      await buyNow(bazaar, buyer);
       await time.increase(DELIVERY_DEADLINE + 1);
-      await expect(
-        bazaar.write.deliver([1n, toHex("k")], { account: seller.account }),
-      ).to.be.rejectedWith("TooLate");
+      await expect(bazaar.write.deliver([1n, toHex("k")], { account: seller.account })).to.be.rejectedWith("TooLate");
     });
   });
 
   describe("access control", () => {
-    it("only lets the assigned buyer dispute, and only the seller deliver", async () => {
+    it("only lets the seller deliver and only the buyer claim a timeout", async () => {
       const { bazaar, seller, buyer, stranger } = await fixture();
-      const { price } = await listFinding(bazaar, seller);
-      await bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price });
-      await expect(
-        bazaar.write.deliver([1n, toHex("k")], { account: stranger.account }),
-      ).to.be.rejectedWith("NotSeller");
-      await bazaar.write.deliver([1n, toHex("k")], { account: seller.account });
-      await expect(
-        bazaar.write.dispute([1n, "not mine"], {
-          account: stranger.account,
-          value: await bazaar.read.disputeBondFor([price]),
-        }),
-      ).to.be.rejectedWith("NotBuyer");
-    });
-
-    it("rejects a purchase at the wrong price", async () => {
-      const { bazaar, seller, buyer } = await fixture();
-      const { price } = await listFinding(bazaar, seller);
-      await expect(
-        bazaar.write.buy([1n, BUYER_PUBKEY], { account: buyer.account, value: price - 1n }),
-      ).to.be.rejectedWith("WrongPayment");
+      await listFinding(bazaar, seller);
+      await buyNow(bazaar, buyer);
+      await expect(bazaar.write.deliver([1n, toHex("k")], { account: stranger.account })).to.be.rejectedWith("NotSeller");
+      await time.increase(DELIVERY_DEADLINE + 1);
+      await expect(bazaar.write.claimTimeout([1n], { account: stranger.account })).to.be.rejectedWith("NotBuyer");
     });
   });
 });

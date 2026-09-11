@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { readListing, listingLogs } from "@/lib/chain";
 import { findingForTarget } from "@/lib/agents";
-import { analyzeFile } from "@/lib/detector";
-import { Status } from "@/lib/types";
+import { runFileTarball } from "@/lib/sandbox";
+import { effectList, Status } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Independent re-verification of a disclosed listing. Re-runs the committed
- * detector against the artifact and reports whether the re-run reproduces the
- * attested grade — the check a skeptical third party would run on the oracle.
+ * Independent re-verification of a disclosed listing: re-detonate the committed
+ * repro in the committed sandbox and report whether it reproduces the attested
+ * trace, sandbox hash and effects — the check a skeptical third party runs.
  */
 export async function POST(req: Request) {
   try {
@@ -19,17 +19,16 @@ export async function POST(req: Request) {
     if (l.status !== Status.Disclosed) {
       return NextResponse.json({ ok: false, error: "listing is not disclosed yet" }, { status: 400 });
     }
-
     const target = (await listingLogs(BigInt(id))).listed.args.targetLabel as string;
     const finding = findingForTarget(target);
     if (!finding) return NextResponse.json({ ok: false, error: "artifact not found" }, { status: 404 });
 
-    const rerun = analyzeFile(finding.target.artifact);
+    const rerun = runFileTarball(finding.target.artifact, finding.repro);
     const matches = {
       artifactHash: rerun.artifactHash.toLowerCase() === l.att.artifactHash.toLowerCase(),
-      detectorHash: rerun.detectorHash.toLowerCase() === l.att.detectorHash.toLowerCase(),
-      severity: rerun.severity === l.att.severity,
-      vulnClass: rerun.vulnClass === l.att.vulnClass,
+      sandboxHash: rerun.sandboxHash.toLowerCase() === l.att.sandboxHash.toLowerCase(),
+      traceHash: rerun.traceHash.toLowerCase() === l.att.traceHash.toLowerCase(),
+      effects: rerun.effects === l.att.effects,
     };
     const reproduced = Object.values(matches).every(Boolean);
 
@@ -37,24 +36,11 @@ export async function POST(req: Request) {
       ok: true,
       reproduced,
       matches,
-      attested: {
-        artifactHash: l.att.artifactHash,
-        detectorHash: l.att.detectorHash,
-        severity: l.att.severity,
-        vulnClass: l.att.vulnClass,
-      },
-      rerun: {
-        artifactHash: rerun.artifactHash,
-        detectorHash: rerun.detectorHash,
-        severity: rerun.severity,
-        vulnClass: rerun.vulnClass,
-        signals: rerun.signals.map((s) => ({ rule: s.rule, file: s.file, evidence: s.evidence })),
-      },
+      attested: { artifactHash: l.att.artifactHash, sandboxHash: l.att.sandboxHash, traceHash: l.att.traceHash, effects: l.att.effects, effectLabels: effectList(l.att.effects).map((e) => e.label) },
+      rerun: { artifactHash: rerun.artifactHash, sandboxHash: rerun.sandboxHash, traceHash: rerun.traceHash, effects: rerun.effects, effectLabels: effectList(rerun.effects).map((e) => e.label), trace: rerun.trace, captures: rerun.captures },
+      expectedResult: finding.expectedResult,
     });
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
-    );
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }

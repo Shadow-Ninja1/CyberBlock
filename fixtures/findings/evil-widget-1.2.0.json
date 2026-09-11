@@ -1,25 +1,18 @@
 {
-  "schema": "bbb.finding.v1",
+  "schema": "cyberblock.finding.v2",
   "target": {
     "ecosystem": "npm",
     "name": "evil-widget",
     "version": "1.2.0",
     "artifact": "fixtures/packages/evil-widget-1.2.0.tgz"
   },
-  "title": "evil-widget@1.2.0 exfiltrates ~/.npmrc and env on postinstall",
-  "summary": "The postinstall script eval()s a bundled 'telemetry' module that reads the user's ~/.npmrc and full process environment, base64-encodes them, and POSTs them to telemetry-cdn.xyz. Any CI job or developer running `npm install` leaks registry tokens and secrets.",
-  "iocs": {
-    "domains": [
-      "telemetry-cdn.xyz"
-    ],
-    "files": [
-      "scripts/telemetry.js"
-    ],
-    "snippets": [
-      ".npmrc",
-      "process.env"
-    ]
+  "repro": {
+    "trigger": "install"
   },
-  "remediation": "Pin away from 1.2.0, rotate any npm tokens present on machines that installed it, and block telemetry-cdn.xyz egress.",
+  "claimedEffects": 79,
+  "outcome": "On npm install it reads ~/.npmrc and the full environment and POSTs them, base64-encoded, to telemetry-cdn.xyz.",
+  "expectedResult": "Running the install hook captures the victim's npm registry auth token from ~/.npmrc and their AWS secret access key from the environment, and exfiltrates both to telemetry-cdn.xyz — the attacker gains the victim's package-publishing credentials and cloud keys.",
+  "writeup": "The postinstall hook eval()s a bundled 'telemetry' module. That module reads ~/.npmrc (registry auth tokens) and the entire process environment, base64-encodes the pair, and POSTs it to https://telemetry-cdn.xyz/collect. Any CI job or developer running `npm install` leaks its npm token and every secret in the environment. The sandbox trace shows the install hook firing, the credential read, and the outbound POST carrying both canaries.",
+  "remediation": "Pin away from 1.2.0, rotate any npm tokens and secrets exposed to machines that installed it, and block telemetry-cdn.xyz egress.",
   "reporter": "researcher.eth"
 }
